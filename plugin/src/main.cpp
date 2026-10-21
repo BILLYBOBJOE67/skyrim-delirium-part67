@@ -283,7 +283,7 @@ namespace
 
 	// Skyrim's knock-state update (AE 39896) asks Actor::IsRagdollMovingSlowEnoughToGetUp (AE 37689) whether a
 	// knocked-down actor may get up. While Delirium still moves the body the answer is no; once it has settled
-	// (handover) Skyrim's own check decides and its vanilla get-up starts from our pose.
+	// Skyrim's own check decides and its vanilla get-up starts from our pose.
 	struct GetUpCheck
 	{
 		static bool thunk(RE::Actor* a_actor)

@@ -45,7 +45,6 @@ namespace delirium
 
 	private:
 		// one of Skyrim's ragdoll bodies and the bone it hangs on (the body sits on the bone, havok units = game units * kUnit).
-		// While Delirium owns the NPC the body is a puppet: no mass, no gravity, moved onto `target` every physics step.
 		struct BodyLink
 		{
 			RE::hkpRigidBody* body{};
@@ -53,8 +52,7 @@ namespace delirium
 			V3                target;  // where we posed the bone (havok units), saved before Skyrim syncs bones to bodies
 			Q                 targetRot;
 			bool              hasTarget{};
-			std::array<float, 4> massInv{};  // the body's own inertia/mass inverse and gravity, put back on release
-			float             gravity{ 1.0f };
+			std::array<float, 4> massInv{};  // the body's own inertia/mass inverse
 			V3                lin, ang;  // the velocities we set this step (re-applied after Skyrim's driver)
 			// Skyrim's own ragdoll<->animation mapping for this body: body = animation bone * (mapR, mapT) (mapT unscaled)
 			bool              mapped{};
@@ -90,14 +88,7 @@ namespace delirium
 			bool                               death{};     // a corpse: dies in Delirium, then fades over to Skyrim's ragdoll
 			bool                               writhe{}, writhing{}, relaxed{};  // the dying plan: writhe first or not, gone limp
 			float                              relaxAt{};   // age: when the next dying step (writhe end / limp) comes
-			bool                               native{};      // Skyrim's ragdoll is the body; Delirium only steers it (no bone writes)
 			float                              calibAge{};    // age when Skyrim's ragdoll was calibrated
-			float                              maxGap{};
-			float                              maxSync{};     // native: farthest a sync moved a Delirium part since the last log line (m)
-			int                                syncs{};
-			float                              maxRound{}, maxRoundAng{};  // sync check: Skyrim -> Delirium -> Skyrim body error
-			std::string                        roundBody;
-			std::string                        roundLog;
 			bool                               following{};   // torque drive: Delirium in FOLLOW mode on Skyrim's ragdoll
 			bool                               haveDrv{};
 			std::array<float, 21 * 6>          drv{};         // Delirium's force and torque per part from its last step (world)
@@ -105,15 +96,10 @@ namespace delirium
 			std::array<float, 21 * 3>          acc{};         // Delirium's joint accelerations from its last step (world)
 			float                              maxDw{}, maxWant{};
 			int                                clamped{}, spinCapped{}, wantPart{};
-			float                              wantAge{};      // native: farthest body from Delirium's pose since the last log line (m)
-			bool                               handedBack{};  // corpse: bodies have their mass back, no more steering
-			bool                               haveCarry{};   // corpse: ours vs Skyrim's pose measured (carryCom, carryBone)
-			RE::NiTransform                    carryCom;      // COM local: ours = Skyrim's * carryCom
-			std::array<RE::NiMatrix3, 21>      carryBone{};   // written bones' local rotation: ours = Skyrim's * carryBone
+			float                              wantAge{};     // age of the strongest joint ask since the last log line
 			RE::hkbRagdollDriver*              driver{};
 			std::vector<BodyLink>              bodies;
 			float                              settled{}, noRagdoll{};  // seconds lying still in Skyrim's ragdoll state
-			float                              handover{ -1.0f };  // >= 0: settled, body held still until Skyrim starts its get-up
 			int                                drives{};
 			float                              maxSpeed{};    // fastest body steering since the last log line (m/s)
 			float                              blend{ 1.0f };  // 1 = Delirium's pose, 0 = Skyrim's animation
@@ -151,8 +137,6 @@ namespace delirium
 		void WriteBones(Active& a_act);
 		bool SmoothRoot(Active& a, RE::Actor* a_actor);  // ragdolled: the top node turns no faster than cloth physics allows (true: moved)
 		void AddWorld(Active& a, RE::Actor* a_actor, const RE::NiPoint3& a_center, bool a_quiet);  // Skyrim's collision around a_center
-		void RestoreBodies(Active& a);
-		void CarryPose(Active& a, RE::Actor* a_actor);  // handed-back corpse: Skyrim's ragdoll pose plus our measured difference  // Skyrim's ragdoll bodies get their own mass and gravity back, at rest
 		void Calibrate(Active& a, RE::Actor* a_actor);
 		void RefreshBones(Active& a);
 
@@ -176,10 +160,6 @@ namespace delirium
 		bool          followAnimation_{ true };
 		bool          collision_{ true };
 		bool          takeOver_{ true };  // [Ragdoll] bTakeOver
-		bool          native_{ true };    // [Ragdoll] bNative: taken-over ragdolls keep their mass, Skyrim poses the bones
-		float         strength_{ 0.35f }; // [Ragdoll] fStrength: share of the way to Delirium's velocity per step
-		bool          sync_{ false };     // [Ragdoll] bSync: Delirium's body put on Skyrim's ragdoll after each physics step
-		bool          torque_{ true };    // [Ragdoll] bTorque: Delirium follows Skyrim's ragdoll and its muscles move it
 		float         gain_{ 1.0f };      // [Ragdoll] fTorqueGain
 		float         colRadius_{ 600.0f }, colHeight_{ 300.0f };  // game units around the NPC
 		std::size_t   colMaxTris_{ 40000 };

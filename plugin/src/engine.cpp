@@ -25,7 +25,6 @@ namespace delirium
 		constexpr int                 kChest = 10;
 		constexpr int                 kHead = 12;
 		constexpr float               kBlendOut = 0.4f;  // seconds from Delirium's pose back to the animation
-		constexpr int                 kMaxCorpses = 16;  // handed-back corpses whose pose difference is kept; the oldest goes first
 		std::mt19937                  g_rng{ std::random_device{}() };
 		float                         Rand(float a_lo, float a_hi) { return std::uniform_real_distribution<float>(a_lo, a_hi)(g_rng); }
 
@@ -264,14 +263,8 @@ namespace delirium
 		colHeight_ = static_cast<float>(ini.GetDoubleValue("Collision", "fHeight", 300.0));
 		colMaxTris_ = static_cast<std::size_t>(std::max(1000L, ini.GetLongValue("Collision", "iMaxTriangles", 40000)));
 		takeOver_ = ini.GetBoolValue("Ragdoll", "bTakeOver", true);
-		native_ = ini.GetBoolValue("Ragdoll", "bNative", true);
-		sync_ = ini.GetBoolValue("Ragdoll", "bSync", false);
-		torque_ = ini.GetBoolValue("Ragdoll", "bTorque", true);
 		gain_ = static_cast<float>(ini.GetDoubleValue("Ragdoll", "fTorqueGain", 1.0));
-		logger::info("torque drive (Delirium's muscles move Skyrim's ragdoll) {}, gain {:.2f}", torque_, gain_);
-		strength_ = static_cast<float>(ini.GetDoubleValue("Ragdoll", "fStrength", sync_ ? 1.0 : 0.35));
-		logger::info("native ragdoll (taken over ragdolls keep their mass, Skyrim poses the bones) {}, Delirium synced from it {}, steering strength {:.2f} per step",
-			native_, sync_, strength_);
+		logger::info("muscle gain on Skyrim's ragdoll {:.2f}", gain_);
 		logger::info("settings: character file '{}', push key {:#x}, release key {:#x}, push {} N s, follow animation {}, take over Skyrim's ragdolls {}",
 			fredPath_, pushKey_, releaseKey_, push_, followAnimation_, takeOver_);
 	}
@@ -468,21 +461,9 @@ namespace delirium
 				} else {
 					logger::info("spawn: no base object {}", w[1]);
 				}
-			} else if (w[0] == "native" && w.size() >= 2) {
-				native_ = w[1] != "0";
-				logger::info("native ragdoll {} (for the next takeover)", native_);
-			} else if (w[0] == "sync" && w.size() >= 2) {
-				sync_ = w[1] != "0";
-				logger::info("Delirium synced from Skyrim's ragdoll {}", sync_);
-			} else if (w[0] == "torque" && w.size() >= 2) {
-				torque_ = w[1] != "0";
-				logger::info("torque drive {}", torque_);
 			} else if (w[0] == "gain" && w.size() >= 2) {
 				gain_ = std::clamp(std::stof(std::string(w[1])), 0.0f, 10.0f);
 				logger::info("torque gain {:.2f}", gain_);
-			} else if (w[0] == "strength" && w.size() >= 2) {
-				strength_ = std::clamp(std::stof(std::string(w[1])), 0.0f, 1.0f);
-				logger::info("steering strength {:.2f} per step", strength_);
 			} else if (w[0] == "near") {
 				// NPCs near the player: id, name, distance
 				auto* player = RE::PlayerCharacter::GetSingleton();
@@ -497,8 +478,8 @@ namespace delirium
 				logger::info("status: ready {}, {} active", ready_, active_.size());
 				for (const auto& a : active_) {
 					auto act = a->actor.get();
-					logger::info("  {:08X}: age {:.1f} s, knocked {}, held for get-up {:.1f} s, in ragdoll {}", act ? act->GetFormID() : 0, a->age,
-						a->knockQueued, a->handover, act && act->IsInRagdollState());
+					logger::info("  {:08X}: age {:.1f} s, knocked {}, in ragdoll {}", act ? act->GetFormID() : 0, a->age, a->knockQueued,
+						act && act->IsInRagdollState());
 				}
 			} else {
 				logger::warn("command: unknown '{}'", w[0]);
@@ -639,7 +620,6 @@ namespace delirium
 		act->takeover = a_takeover;
 		act->death = a_death;
 		act->knockQueued = a_takeover;  // Skyrim's ragdoll state is already on: no knock of our own
-		act->native = a_takeover && native_;
 		logger::info("{:08X} '{}': active{}; scale {:.2}, pelvis at {:.2} m, head at {:.2} m, heading {:.2}", a_actor->GetFormID(), a_actor->GetName(),
 			a_takeover ? " (took over Skyrim's ragdoll)" : "", act->scale, pos[0].z, pos[kHead].z, heading);
 		active_.push_back(std::move(act));
@@ -747,16 +727,6 @@ namespace delirium
 		logger::info("{:08X}: push {} N s", a_actor->GetFormID(), push_);
 	}
 
-	void Engine::RestoreBodies(Active& a)
-	{
-		for (auto& l : a.bodies) {
-			std::memset(&l.body->motion.linearVelocity, 0, 16);
-			std::memset(&l.body->motion.angularVelocity, 0, 16);
-			std::memcpy(&l.body->motion.inertiaAndMassInv, l.massInv.data(), sizeof(l.massInv));
-			l.body->motion.gravityFactor = l.gravity;
-		}
-	}
-
 	void Engine::Release(std::size_t a_i, const char* a_why)
 	{
 		auto& a = active_[a_i];
@@ -764,10 +734,6 @@ namespace delirium
 		if (auto act = a->actor.get(); act && act->IsInRagdollState()) {
 			skip_.push_back(a->actor);  // still in Skyrim's ragdoll (its get-up, or F2): not taken over again
 			g_skip = static_cast<int>(skip_.size());
-		}
-		// Skyrim's ragdoll gets its own mass and gravity back and carries on limp from our pose (then gets up)
-		if (auto act = a->actor.get(); act && act->Get3D(false) && !a->handedBack) {
-			RestoreBodies(*a);
 		}
 		dl.nm_agent_destroy(a->agent);
 		dl.nm_world_destroy(a->world);
@@ -825,7 +791,7 @@ namespace delirium
 		std::scoped_lock l(lock_);
 		for (auto& p : active_) {
 			auto& a = *p;
-			if (!a.knockQueued || (a.native && a.calibrated) || a.actor.get().get() != a_actor) {
+			if (!a.knockQueued || a.calibrated || a.actor.get().get() != a_actor) {
 				continue;
 			}
 			auto* top = a_actor->Get3D(false);
@@ -833,10 +799,7 @@ namespace delirium
 				return;
 			}
 			// 1. the top node glides after Skyrim's instead of jumping (FSMP and SMP gear simulate relative to it)
-			// (not for a handed-back corpse: its carried pose is relative to Skyrim's own top node)
-			if (!a.handedBack) {
-				SmoothRoot(a, a_actor);
-			}
+			SmoothRoot(a, a_actor);
 			if (!a.haveCom) {
 				return;
 			}
@@ -1115,43 +1078,10 @@ namespace delirium
 			}
 		}
 		for (int i = 0; i < 21; ++i) {
-			float p[3]{}, q[4]{};
-			dl.nm_agent_get_part_transform(a.agent, i, p, q);
-			const V3 d = Sub(pos[i], { p[0], p[1], p[2] });
-			a.maxSync = std::max(a.maxSync, std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z));
-		}
-		for (int i = 0; i < 21; ++i) {
 			const float p[3]{ pos[i].x, pos[i].y, pos[i].z }, q[4]{ rot[i].x, rot[i].y, rot[i].z, rot[i].w };
 			const float lv[3]{ v[i].x, v[i].y, v[i].z }, av[3]{ w[i].x, w[i].y, w[i].z };
 			dl.nm_agent_set_part_state(a.agent, i, p, q, lv, av);
 		}
-		for (auto& b : a.bodies) {
-			if (!b.mapped) {
-				continue;
-			}
-			V3 pt;
-			Q  qt;
-			BodyTarget(a, b, pt, qt);
-			const auto& ms = b.body->motion.motionState;
-			const auto* cl = reinterpret_cast<const float*>(&ms.sweptTransform.centerOfMassLocal);
-			const auto* cw = reinterpret_cast<const float*>(&ms.sweptTransform.centerOfMass1);
-			const auto* qc = reinterpret_cast<const float*>(&ms.sweptTransform.rotation1);
-			const V3    com = Add(pt, Rot(qt, { cl[0], cl[1], cl[2] }));
-			const V3    d = Sub(com, { cw[0], cw[1], cw[2] });
-			Q           dq = Mul(qt, Conj({ qc[0], qc[1], qc[2], qc[3] }));
-			const float ang = 2.0f * std::acos(std::clamp(std::abs(dq.w), 0.0f, 1.0f));
-			const float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-			if (dist > a.maxRound) {
-				a.maxRound = dist;
-				a.roundBody = b.node ? b.node->name.c_str() : "?";
-			}
-			a.maxRoundAng = std::max(a.maxRoundAng, ang);
-		}
-		if (!a.roundLog.empty()) {
-			logger::info("    sync {} age {:.3f}:{}", a.syncs, a.age, a.roundLog);
-			a.roundLog.clear();
-		}
-		++a.syncs;
 	}
 
 	void Engine::InheritVelocity(Active& a)
@@ -1241,14 +1171,6 @@ namespace delirium
 				Release(i, "actor gone");
 				return;
 			}
-			if (a.handedBack) {
-				if (!a_actor->IsDead()) {
-					Release(i, "came back to life");
-				} else if (!a_actor->IsInRagdollState()) {
-					Release(i, "no longer in Skyrim's ragdoll state");
-				}
-				return;
-			}
 			const float dt = std::clamp(a_delta, 0.0f, 0.1f);
 			++a.calls;
 			a.dtSum += a_delta;
@@ -1257,7 +1179,7 @@ namespace delirium
 			// the bones were already posed from the last step, inside the animation update (AfterPose)
 			// every frame advances by exactly its own time, split into equal steps of at most kStep: a fixed step with
 			// an accumulator runs 0 steps one frame and 2 the next, and that stutter shakes CBPC/SMP physics
-			if (a.handover < 0.0f && dt > 0.0f && TorqueMode(a)) {
+			if (dt > 0.0f && TorqueMode(a)) {
 				if (!a.following) {
 					dl.nm_agent_set_mode(a.agent, NM_MODE_FOLLOW);
 					a.following = true;
@@ -1274,7 +1196,7 @@ namespace delirium
 					a.haveDrv = dl.nm_agent_get_part_drives(a.agent, a.drv.data(), 21) == 21 &&
 					            dl.nm_agent_get_joint_accels(a.agent, a.acc.data(), 21) == 21;
 				}
-			} else if (a.handover < 0.0f && dt > 0.0f) {
+			} else if (dt > 0.0f) {
 				if (a.following) {
 					dl.nm_agent_set_mode(a.agent, NM_MODE_LEAD);
 					a.following = false;
@@ -1288,7 +1210,7 @@ namespace delirium
 					}
 				}
 			}
-			if (collision_ && a.handover < 0.0f) {
+			if (collision_) {
 				// Skyrim's collision was gathered around one spot: thrown far (Fus Ro Dah) she would fly through walls
 				// and out of the map past its edge. Past 40% of the patch, gather a new one around her.
 				float cp[3]{}, cv[3]{};
@@ -1317,7 +1239,7 @@ namespace delirium
 				a.dtSum = 0;
 			}
 			a.wasBalancing |= balancing;
-			if (a.death && a.calibrated && !a.relaxed && a.handover < 0.0f) {
+			if (a.death && a.calibrated && !a.relaxed) {
 				if (a.writhe && !a.writhing && (fallen || a.age >= a.relaxAt)) {
 					a.writhing = true;
 					dl.nm_msg_begin(a.agent, "stopAllBehaviours");
@@ -1357,7 +1279,6 @@ namespace delirium
 				// balance lost: hand the actor to Skyrim's own ragdoll state now, while our pose is still close to the
 				// animation Skyrim builds its ragdoll from (no push of its own); DriveRagdoll makes it follow Delirium
 				a.knockQueued = true;
-				a.native = native_;
 				// the way she is falling (Delirium's head over its pelvis, flat): the knock's source goes behind her
 				float hp[3]{}, pp[3]{}, hq[4]{};
 				dl.nm_agent_get_part_transform(a.agent, kHead, hp, hq);
@@ -1386,16 +1307,6 @@ namespace delirium
 					a.spinCapped = 0;
 					a.maxDw = 0;
 				}
-				if (a.native) {
-					logger::info("  native: Skyrim's bodies up to {:.2f} m from Delirium's; {} syncs, Delirium moved up to {:.2f} m by them", a.maxGap, a.syncs,
-						a.maxSync);
-					a.maxGap = 0;
-					logger::info("  round trip Skyrim -> Delirium -> Skyrim: bodies up to {:.3f} m ({}) and {:.1f} deg off", a.maxRound, a.roundBody, a.maxRoundAng * 57.2958f);
-					a.maxRound = 0;
-					a.maxRoundAng = 0;
-					a.maxSync = 0;
-					a.syncs = 0;
-				}
 				a.drives = 0;
 				a.maxSpeed = 0;
 				a.maxRootLag = 0;
@@ -1415,45 +1326,16 @@ namespace delirium
 					return;
 				}
 			}
-			// One ragdoll: Delirium's. Once it lies still, the body is held there (puppet bodies at rest) until Skyrim's own
-			// get-up starts, so Skyrim's limp ragdoll never runs; Skyrim's get-up then blends from exactly our pose.
-			if (a.native && a.calibrated && autoRelease_ && a.settled > (a.death ? 1.0f : 0.5f)) {
+			// one body, Skyrim's ragdoll: once it lies still Skyrim takes over (corpse, or its own get-up)
+			if (autoRelease_ && a.settled > (a.death ? 1.0f : 0.5f)) {
 				Release(i, a.death ? "settled: the corpse is Skyrim's ragdoll already" : "settled: Skyrim's ragdoll gets up by itself");
 				return;
-			}
-			if (autoRelease_ && a.settled > (a.death ? 2.0f : 1.0f) && a.handover < 0.0f) {
-				a.handover = 0.0f;
-				if (a.death) {
-					// a corpse goes back to Skyrim's own ragdoll (mass back, no more steering), so it can be dragged and hit
-					// like any other. No fade: Skyrim's pose of that ragdoll sits 0.1-0.2 m off ours, so the next pose copy
-					// measures the difference per bone and every copy after it carries it (AfterPoseImpl)
-					a.handedBack = true;
-					RestoreBodies(a);
-					logger::info("{:08X}: settled; corpse handed to Skyrim's ragdoll, our pose kept on it", a_actor->GetFormID());
-					int corpses = 0;
-					for (auto& p : active_) {
-						corpses += p->handedBack;
-					}
-					if (corpses > kMaxCorpses) {
-						for (std::size_t j = 0; j < active_.size(); ++j) {
-							if (j != i && active_[j]->handedBack) {
-								Release(j, "too many corpses, the oldest goes back to Skyrim's pose");
-								return;
-							}
-						}
-					}
-				} else {
-					logger::info("{:08X}: settled; holding still for Skyrim's get-up", a_actor->GetFormID());
-				}
-			}
-			if (a.handover >= 0.0f) {
-				a.handover += dt;
 			}
 			// the frame Skyrim switches to its ragdoll has no pose copy at all (and we only learn that a frame later):
 			// while knocked, put our pose on the bones here too, so a frame without a copy still draws ours. Held still
 			// too: with only Skyrim's one copy a frame, its own pose (0.1-0.2 m off ours) showed through as a twitch
-			if (a.knockQueued && !a.handedBack && !(a.native && a.calibrated)) {
-				if (a.copies == 0 && a.handover < 0.0f) {
+			if (a.knockQueued && !a.calibrated) {
+				if (a.copies == 0) {
 					logger::info("  age {:.3f}: the last frame had no pose copy", a.age);
 				}
 				AfterPose(a_actor, false);
@@ -1468,9 +1350,7 @@ namespace delirium
 			if (a.calibrated) {
 				const auto ks = a_actor->AsActorState()->GetKnockState();
 				if (ks == RE::KNOCK_STATE_ENUM::kQueued || ks == RE::KNOCK_STATE_ENUM::kGetUp) {
-					Release(i, a.handover >= 0.0f ? "Skyrim gets up" : "Skyrim started its get-up early");
-				} else if (a.handover > 6.0f && !a.death) {
-					Release(i, "no get-up from Skyrim after 6 s");
+					Release(i, "Skyrim started its get-up");
 				}
 			}
 			return;
@@ -1485,7 +1365,7 @@ namespace delirium
 		for (auto& p : active_) {
 			if (p->actor.get().get() == a_actor) {
 				// fallen and not yet settled: Delirium owns the body, Skyrim must not start its get-up
-				return p->knockQueued && p->handover < 0.0f;
+				return p->knockQueued;
 			}
 		}
 		return false;
@@ -1512,7 +1392,7 @@ namespace delirium
 				}
 				// COM as this pose copy left it (ours or Skyrim's ragdoll pose): AfterRootMove holds it there
 				p->comWorld = p->com->world;
-				p->haveCom = p->knockQueued && !(p->native && p->calibrated);
+				p->haveCom = p->knockQueued && !p->calibrated;
 			}
 		}
 	}
@@ -1563,10 +1443,6 @@ namespace delirium
 				continue;
 			}
 			++a.poses;
-			if (a.handedBack) {
-				CarryPose(a, a_actor);
-				return;
-			}
 			// Skyrim's animated pose in world space (the bone locals are fresh from the graph), then Delirium's bones over it
 			RefreshBones(a);
 			if (a_postPhysics && !a.calibrated && a.driver && a_actor->IsInRagdollState()) {
@@ -1576,11 +1452,8 @@ namespace delirium
 					InheritVelocity(a);
 				}
 			}
-			if (a.native && a.calibrated) {
-				if (sync_ && !TorqueMode(a) && a_postPhysics && (a.takeover || a.age - a.calibAge >= 0.15f)) {
-					SyncFromSkyrim(a);
-				}
-				return;
+			if (a.calibrated) {
+				return;  // Skyrim's ragdoll is the body: Skyrim poses the bones from it
 			}
 			std::array<V3, 21> pos;
 			std::array<Q, 21>  rot;
@@ -1624,61 +1497,6 @@ namespace delirium
 		}
 	}
 
-	// A handed-back corpse: the bone locals are fresh from Skyrim's ragdoll. The first copy measures how far ours are from
-	// them (COM as a whole transform, the written bones' rotations); every copy then puts that difference back on, so the
-	// corpse looks like Delirium left it and still moves with Skyrim's ragdoll when dragged or hit.
-	void Engine::CarryPose(Active& a, RE::Actor* a_actor)
-	{
-		auto* root3d = a_actor->Get3D(false);
-		auto  refreshChain = [&]() {
-			std::array<RE::NiAVObject*, 8> chain{};
-			std::size_t                    n = 0;
-			for (auto* c = a.com->parent; c && c != root3d && n < chain.size(); c = c->parent) {
-				chain[n++] = c;
-			}
-			while (n > 0) {
-				auto* c = chain[--n];
-				if (c->parent) {
-					c->world = c->parent->world * c->local;
-				}
-			}
-		};
-		if (!a.haveCarry) {
-			RefreshBones(a);
-			refreshChain();
-			const RE::NiTransform        skyCom = a.com->local;
-			std::array<RE::NiMatrix3, 21> sky;
-			for (std::size_t i = 0; i < 21; ++i) {
-				if (rig_[i].write && a.ref[i]) {
-					sky[i] = a.ref[i]->local.rotate;
-				}
-			}
-			const RE::NiPoint3 skyPelvis = a.ref[0]->world.translate;
-			WriteBones(a);
-			a.carryCom = skyCom.Invert() * a.com->local;
-			float worst = 0;
-			for (std::size_t i = 0; i < 21; ++i) {
-				if (rig_[i].write && a.ref[i]) {
-					a.carryBone[i] = sky[i].Transpose() * a.ref[i]->local.rotate;
-					const float tr = a.carryBone[i].entry[0][0] + a.carryBone[i].entry[1][1] + a.carryBone[i].entry[2][2];
-					worst = std::max(worst, std::acos(std::clamp((tr - 1.0f) * 0.5f, -1.0f, 1.0f)));
-				}
-			}
-			a.haveCarry = true;
-			logger::info("{:08X}: carried pose measured: pelvis {:.1f} units off Skyrim's, bones up to {:.1f} deg", a_actor->GetFormID(),
-				(a.ref[0]->world.translate - skyPelvis).Length(), worst * 57.2958f);
-			return;
-		}
-		a.com->local = a.com->local * a.carryCom;
-		for (std::size_t i = 0; i < 21; ++i) {
-			if (rig_[i].write && a.ref[i]) {
-				a.ref[i]->local.rotate = a.ref[i]->local.rotate * a.carryBone[i];
-			}
-		}
-		refreshChain();
-		UpdateTransforms(a.com->parent);
-	}
-
 	void Engine::Calibrate(Active& a, RE::Actor* a_actor)
 	{
 		// Skyrim hangs each ragdoll body on a skeleton bone's collision object
@@ -1707,7 +1525,6 @@ namespace delirium
 			}
 			BodyLink l{ body, it->second };
 			std::memcpy(l.massInv.data(), &body->motion.inertiaAndMassInv, sizeof(l.massInv));
-			l.gravity = body->motion.gravityFactor;
 			a.bodies.push_back(l);
 		}
 		// Skyrim hangs each body exactly on its bone (havok units = game units * kUnit). Check it on distances between
@@ -1830,14 +1647,7 @@ namespace delirium
 				logger::info("{:08X}: bodies without a part ride on a neighbour:{}", a_actor->GetFormID(), fl);
 			}
 		}
-		// puppet: infinite mass (joints, ground and other bodies can't push it) and no gravity; DriveRagdoll moves it.
-		// Native: Skyrim's ragdoll is the body (its own mass, gravity, collision), DriveRagdoll only steers it
-		if (!a.native) {
-			for (auto& l : a.bodies) {
-				std::memset(&l.body->motion.inertiaAndMassInv, 0, sizeof(l.massInv));
-				l.body->motion.gravityFactor = 0.0f;
-			}
-		}
+		// Skyrim's ragdoll is the body (its own mass, gravity, collision); DriveRagdoll only moves it
 		a.calibrated = true;
 		a.calibAge = a.age;
 		logger::info("{:08X}: Skyrim ragdoll has {} bodies, {} on bones:{}", a_actor->GetFormID(),
@@ -1861,7 +1671,7 @@ namespace delirium
 	bool Engine::TorqueMode(const Active& a) const
 	{
 		// F7: Delirium leads the first 0.15 s (the push is Delirium's), then follows
-		return torque_ && a.native && a.calibrated && !a.handedBack && (a.takeover || a.age - a.calibAge >= 0.15f);
+		return a.calibrated && (a.takeover || a.age - a.calibAge >= 0.15f);
 	}
 
 	// which of Skyrim's bodies each Delirium part's drive lands on: the body it gives its rotation to, else its position,
@@ -2036,12 +1846,19 @@ namespace delirium
 				continue;
 			}
 			a.driver = a_driver;
-			if (!a.calibrated || !a_driver->ragdoll || a.handedBack) {
+			if (!a.calibrated || !a_driver->ragdoll) {
 				return;
 			}
-			if (!a_after && a.following && TorqueMode(a)) {
-				ApplyTorques(a, a_dt);
-				++a.drives;
+			if (!a_after && TorqueMode(a)) {
+				if (a.following) {
+					ApplyTorques(a, a_dt);
+					++a.drives;
+				} else {
+					// Delirium starts following on the next frame: until then Skyrim's ragdoll runs on its own
+					for (auto& b : a.bodies) {
+						b.hasTarget = false;
+					}
+				}
 				return;
 			}
 			if (a_after) {
@@ -2080,7 +1897,7 @@ namespace delirium
 					b.hasTarget = true;
 				}
 			}
-			// hard keyframe: the velocities that carry each body onto Delirium's pose in one step
+			// F7's first 0.15 s (the push is Delirium's): the velocities that carry each body onto Delirium's pose in one step
 			const float inv = 1.0f / std::max(a_dt, 1.0f / 240.0f);
 			for (auto& b : a.bodies) {
 				if (!b.hasTarget) {
@@ -2106,7 +1923,7 @@ namespace delirium
 					const float l = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
 					return l > m ? Scl(v, m / l) : v;
 				};
-				// puppet bodies have nothing to fight, so they track exactly; the cap only guards against garbage
+				// the cap only guards against garbage
 				V3 linC = cap(lin, 200.0f), wC = cap(w, 400.0f);
 				auto finite = [](const V3& v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
 				if (!finite(linC) || !finite(wC) || !finite(pt) || !std::isfinite(qt.w)) {
@@ -2122,18 +1939,6 @@ namespace delirium
 				a.maxSpeed = std::max(a.maxSpeed, std::sqrt(lin.x * lin.x + lin.y * lin.y + lin.z * lin.z));
 				auto*       lv = reinterpret_cast<float*>(&b.body->motion.linearVelocity);
 				auto*       av = reinterpret_cast<float*>(&b.body->motion.angularVelocity);
-				if (a.native) {
-					// part of the way from the body's own velocity to the one that lands it on Delirium's pose: joints,
-					// ground, other bodies and gravity still act on it
-					const V3 gap = Sub(com, { cw[0], cw[1], cw[2] });
-					a.maxGap = std::max(a.maxGap, std::sqrt(gap.x * gap.x + gap.y * gap.y + gap.z * gap.z));
-					const float s = (!a.takeover && a.age - a.calibAge < 0.15f) ? 1.0f : strength_;
-					const V3    cv{ lv[0], lv[1], lv[2] }, ca{ av[0], av[1], av[2] };
-					if (finite(cv) && finite(ca)) {
-						linC = Add(cv, Scl(Sub(linC, cv), s));
-						wC = Add(ca, Scl(Sub(wC, ca), s));
-					}
-				}
 				lv[0] = linC.x, lv[1] = linC.y, lv[2] = linC.z, lv[3] = 0;
 				av[0] = wC.x, av[1] = wC.y, av[2] = wC.z, av[3] = 0;
 				b.lin = linC;
