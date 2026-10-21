@@ -1,0 +1,10 @@
+# Data read from the user's own GTA IV / Skyrim installs: never committed or shipped
+local/
+target/
+
+# build output
+plugin/build/
+plugin/build.log
+
+# local tooling
+.claude/

@@ -1,0 +1,15 @@
+[package]
+name = "fit-test"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+publish = false
+
+[dependencies]
+delirium-sdk = { path = "../../gta iv/delirium-physics/crates/delirium-sdk" }
+serde_json = "1"
+glam = "0.30"
+delirium-data = { path = "../../gta iv/delirium-physics/crates/delirium-data" }
+
+[profile.release]
+debug = false
