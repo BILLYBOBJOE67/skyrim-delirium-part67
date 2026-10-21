@@ -34,6 +34,19 @@ foreach ($ext in 'dll', 'pdb') {
 	Copy-Item $src $dst -Force
 	if ((Get-FileHash $src).Hash -ne (Get-FileHash $dst).Hash) { Write-Output "HASH MISMATCH: $dst"; exit 1 }
 }
+# Delirium itself, when rebuilt. An older core loaded it straight from the mod folder and keeps it locked: a locked
+# file can still be renamed, so it moves aside and the new one goes in
+$dsrc = 'C:\path\to\delirium-physics\target\release\delirium_physics.dll'
+$ddst = Join-Path $Mod 'SKSE\Plugins\SkyrimDelirium\delirium_physics.dll'
+Get-ChildItem (Split-Path $ddst) -Filter 'delirium_physics.old*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Remove-Item $_.FullName -ErrorAction SilentlyContinue }
+if ((Test-Path $dsrc) -and ((Get-FileHash $dsrc).Hash -ne (Get-FileHash $ddst).Hash)) {
+	try { Copy-Item $dsrc $ddst -Force } catch {
+		Rename-Item $ddst ('delirium_physics.old{0}.dll' -f (Get-Date -Format 'HHmmss'))
+		Copy-Item $dsrc $ddst -Force
+	}
+	if ((Get-FileHash $dsrc).Hash -ne (Get-FileHash $ddst).Hash) { Write-Output "HASH MISMATCH: $ddst"; exit 1 }
+	Write-Output 'DELIRIUM COPIED'
+}
 if (-not (Get-Process SkyrimSE -ErrorAction SilentlyContinue)) { Write-Output 'COPIED (game not running, no reload)'; exit 0 }
 Send @('reload')
 Write-Output 'COPIED + reload sent'

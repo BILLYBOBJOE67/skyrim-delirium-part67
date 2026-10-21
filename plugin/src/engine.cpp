@@ -19,6 +19,7 @@ namespace delirium
 		constexpr float kUnit = 0.0142875f;  // metres per game unit
 		constexpr float kStep = 1.0f / 60.0f;
 		constexpr int   kMaxSteps = 4;
+		constexpr float kMaxSpin = 3.0f * 6.2831853f;  // Delirium's MAX_SPIN_NM (rad/s)
 		// NM part order's parents (Buttocks is the root)
 		constexpr std::array<int, 21> kParent{ -1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 10, 11, 10, 13, 14, 15, 10, 17, 18, 19 };
 		constexpr int                 kChest = 10;
@@ -52,7 +53,8 @@ namespace delirium
 	X(nm_agent_create) X(nm_agent_destroy) X(nm_agent_step) X(nm_agent_set_mode) X(nm_agent_get_part_transform) \
 	X(nm_agent_set_part_state) X(nm_agent_get_kinetic_energy) X(nm_agent_apply_push) X(nm_msg_begin)           \
 	X(nm_msg_set_bool) X(nm_msg_set_float) X(nm_msg_send) X(nm_agent_is_balancing) X(nm_agent_has_fallen) X(nm_agent_set_zero_pose) \
-	X(nm_build_scale) X(nm_build_destroy) X(nm_world_add_mesh) X(nm_world_raycast) X(nm_world_triangle_count) X(nm_agent_get_com) X(nm_agent_task_shot)
+	X(nm_build_scale) X(nm_build_destroy) X(nm_world_add_mesh) X(nm_world_raycast) X(nm_world_triangle_count) X(nm_agent_get_com) X(nm_agent_task_shot) \
+	X(nm_agent_get_part_drives) X(nm_build_part_info) X(nm_agent_get_joint_accels)
 		struct Api
 		{
 #define DL_DECL(f) decltype(&::f) f = nullptr;
@@ -73,8 +75,22 @@ namespace delirium
 
 		bool LoadApi()
 		{
-			const auto path = PluginDir() / L"SkyrimDelirium" / L"delirium_physics.dll";
+			// loaded from a copy beside the core's own temporary copy: the mod's file is never locked, so a rebuilt
+			// Delirium goes in with a hot reload like the core
+			auto            path = PluginDir() / L"SkyrimDelirium" / L"delirium_physics.dll";
+			HMODULE         self{};
+			wchar_t         own[MAX_PATH]{};
+			std::error_code ec;
+			if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+					reinterpret_cast<LPCWSTR>(&LoadApi), &self) &&
+				GetModuleFileNameW(self, own, MAX_PATH)) {
+				const auto copy = std::filesystem::path(own).parent_path() / L"delirium_physics.dll";
+				if (CopyFileW(path.c_str(), copy.c_str(), FALSE)) {
+					path = copy;
+				}
+			}
 			const HMODULE h = LoadLibraryW(path.c_str());
+			logger::info("Delirium from {}", path.string());
 			if (!h) {
 				logger::error("can't load {} (error {})", path.string(), GetLastError());
 				return false;
@@ -250,6 +266,9 @@ namespace delirium
 		takeOver_ = ini.GetBoolValue("Ragdoll", "bTakeOver", true);
 		native_ = ini.GetBoolValue("Ragdoll", "bNative", true);
 		sync_ = ini.GetBoolValue("Ragdoll", "bSync", false);
+		torque_ = ini.GetBoolValue("Ragdoll", "bTorque", true);
+		gain_ = static_cast<float>(ini.GetDoubleValue("Ragdoll", "fTorqueGain", 1.0));
+		logger::info("torque drive (Delirium's muscles move Skyrim's ragdoll) {}, gain {:.2f}", torque_, gain_);
 		strength_ = static_cast<float>(ini.GetDoubleValue("Ragdoll", "fStrength", sync_ ? 1.0 : 0.35));
 		logger::info("native ragdoll (taken over ragdolls keep their mass, Skyrim poses the bones) {}, Delirium synced from it {}, steering strength {:.2f} per step",
 			native_, sync_, strength_);
@@ -455,6 +474,12 @@ namespace delirium
 			} else if (w[0] == "sync" && w.size() >= 2) {
 				sync_ = w[1] != "0";
 				logger::info("Delirium synced from Skyrim's ragdoll {}", sync_);
+			} else if (w[0] == "torque" && w.size() >= 2) {
+				torque_ = w[1] != "0";
+				logger::info("torque drive {}", torque_);
+			} else if (w[0] == "gain" && w.size() >= 2) {
+				gain_ = std::clamp(std::stof(std::string(w[1])), 0.0f, 10.0f);
+				logger::info("torque gain {:.2f}", gain_);
 			} else if (w[0] == "strength" && w.size() >= 2) {
 				strength_ = std::clamp(std::stof(std::string(w[1])), 0.0f, 1.0f);
 				logger::info("steering strength {:.2f} per step", strength_);
@@ -1120,9 +1145,6 @@ namespace delirium
 				a.maxRound = dist;
 				a.roundBody = b.node ? b.node->name.c_str() : "?";
 			}
-			if (a.syncs < 3 || a.syncs % 20 == 0) {
-				a.roundLog += fmt::format(" {}={:.2f}m/{:.0f}d(p{} r{})", b.node ? b.node->name.c_str() : "?", dist, ang * 57.2958f, b.posPart, b.rotPart);
-			}
 			a.maxRoundAng = std::max(a.maxRoundAng, ang);
 		}
 		if (!a.roundLog.empty()) {
@@ -1235,7 +1257,28 @@ namespace delirium
 			// the bones were already posed from the last step, inside the animation update (AfterPose)
 			// every frame advances by exactly its own time, split into equal steps of at most kStep: a fixed step with
 			// an accumulator runs 0 steps one frame and 2 the next, and that stutter shakes CBPC/SMP physics
-			if (a.handover < 0.0f && dt > 0.0f) {
+			if (a.handover < 0.0f && dt > 0.0f && TorqueMode(a)) {
+				if (!a.following) {
+					dl.nm_agent_set_mode(a.agent, NM_MODE_FOLLOW);
+					a.following = true;
+					MapParts(a);
+				}
+				SyncFromSkyrim(a);
+				a.haveDrv = false;
+				if (dl.nm_agent_step(a.agent, a.world, dt) < 0) {
+					if (!a.logged) {
+						logger::error("step (follow): {}", LastError());
+						a.logged = true;
+					}
+				} else {
+					a.haveDrv = dl.nm_agent_get_part_drives(a.agent, a.drv.data(), 21) == 21 &&
+					            dl.nm_agent_get_joint_accels(a.agent, a.acc.data(), 21) == 21;
+				}
+			} else if (a.handover < 0.0f && dt > 0.0f) {
+				if (a.following) {
+					dl.nm_agent_set_mode(a.agent, NM_MODE_LEAD);
+					a.following = false;
+				}
 				const int   steps = std::clamp(int(std::ceil(dt / kStep - 0.05f)), 1, kMaxSteps);
 				const float h = dt / float(steps);
 				for (int n = 0; n < steps; ++n) {
@@ -1335,6 +1378,14 @@ namespace delirium
 				logger::info("  ragdoll: knock state {}, in state {}, {} bodies, {} drives, fastest steer {:.1f} m/s, top node lag up to {:.2f} rad",
 					static_cast<int>(a_actor->AsActorState()->GetKnockState()), a_actor->IsInRagdollState(), a.bodies.size(), a.drives, a.maxSpeed,
 					a.maxRootLag);
+				if (a.following) {
+					logger::info("  muscles: joints asked for up to {:.2f} rad/s per step ({} at age {:.2f}; {} capped), bodies turned up to {:.2f} rad/s per step, {} spins capped (gain {:.2f})",
+						a.maxWant, rig_[static_cast<std::size_t>(a.wantPart)].name, a.wantAge, a.clamped, a.maxDw, a.spinCapped, gain_);
+					a.maxWant = 0;
+					a.clamped = 0;
+					a.spinCapped = 0;
+					a.maxDw = 0;
+				}
 				if (a.native) {
 					logger::info("  native: Skyrim's bodies up to {:.2f} m from Delirium's; {} syncs, Delirium moved up to {:.2f} m by them", a.maxGap, a.syncs,
 						a.maxSync);
@@ -1526,7 +1577,7 @@ namespace delirium
 				}
 			}
 			if (a.native && a.calibrated) {
-				if (sync_ && a_postPhysics && (a.takeover || a.age - a.calibAge >= 0.15f)) {
+				if (sync_ && !TorqueMode(a) && a_postPhysics && (a.takeover || a.age - a.calibAge >= 0.15f)) {
 					SyncFromSkyrim(a);
 				}
 				return;
@@ -1807,6 +1858,165 @@ namespace delirium
 		return true;
 	}
 
+	bool Engine::TorqueMode(const Active& a) const
+	{
+		// F7: Delirium leads the first 0.15 s (the push is Delirium's), then follows
+		return torque_ && a.native && a.calibrated && !a.handedBack && (a.takeover || a.age - a.calibAge >= 0.15f);
+	}
+
+	// which of Skyrim's bodies each Delirium part's drive lands on: the body it gives its rotation to, else its position,
+	// else the body riding on it; parts with no body (clavicles) go to the nearest body up the chain
+	void Engine::MapParts(Active& a)
+	{
+		a.partBody.fill(-1);
+		for (int pass = 0; pass < 3; ++pass) {
+			for (std::size_t k = 0; k < a.bodies.size(); ++k) {
+				const auto& b = a.bodies[k];
+				const int   p = pass == 0 ? (b.mapped ? b.rotPart : -1) : pass == 1 ? (b.mapped ? b.posPart : -1) : (b.mapped ? -1 : b.follow);
+				if (p >= 0 && p < 21 && a.partBody[p] < 0) {
+					a.partBody[p] = static_cast<int>(k);
+				}
+			}
+		}
+		for (int p = 0; p < 21; ++p) {
+			int up = p;
+			while (a.partBody[up] < 0 && kParent[up] >= 0) {
+				up = kParent[up];
+			}
+			if (a.partBody[p] < 0) {
+				a.partBody[p] = a.partBody[up];
+			}
+		}
+		std::vector<float> dm(a.bodies.size(), 0.0f);
+		for (int p = 0; p < 21; ++p) {
+			float m = 0;
+			if (a.partBody[p] >= 0 && dl.nm_build_part_info(build_, p, &m, nullptr, nullptr, nullptr) >= 0) {
+				dm[static_cast<std::size_t>(a.partBody[p])] += m * a.scale * a.scale * a.scale;
+			}
+		}
+		std::string s;
+		float       dt = 0, ht = 0;
+		for (std::size_t k = 0; k < a.bodies.size(); ++k) {
+			const auto& b = a.bodies[k];
+			const float hm = b.massInv[3] > 0 ? 1.0f / b.massInv[3] : 0.0f;
+			dt += dm[k];
+			ht += hm;
+			s += fmt::format(" {} {:.1f}/{:.1f}", b.node ? b.node->name.c_str() : "?", dm[k], hm);
+		}
+		logger::info("  torque drive: Delirium follows Skyrim's ragdoll, its muscles move it; mass Delirium/Skyrim kg {:.1f}/{:.1f}:{}", dt, ht, s);
+	}
+
+	// Delirium's muscles on Skyrim's bodies for one physics step. Its torques are sized for its own whole-body inertia, so
+	// on one light Skyrim body (a hand) they spin it up ten times too fast; what carries over is what they do to each
+	// joint: the change of the joint's relative spin. That change is split between the joint's two bodies by their own
+	// inertia (equal and opposite torque), so the joint turns as Delirium's would and no spin comes from nowhere.
+	// Behaviour forces (lift) go on through the body's mass. Gravity, joints, ground and contacts stay Skyrim's.
+	void Engine::ApplyTorques(Active& a, float a_dt)
+	{
+		if (!a.haveDrv) {
+			return;
+		}
+		using M3 = std::array<float, 9>;
+		auto mul = [](const M3& m, const V3& v) {
+			return V3{ m[0] * v.x + m[1] * v.y + m[2] * v.z, m[3] * v.x + m[4] * v.y + m[5] * v.z, m[6] * v.x + m[7] * v.y + m[8] * v.z };
+		};
+		auto len = [](const V3& v) { return std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z); };
+		const std::size_t n = a.bodies.size();
+		std::vector<M3>   inv(n);
+		for (std::size_t k = 0; k < n; ++k) {
+			// world inverse inertia: R diag(i) R^T (havok keeps it diagonal in the body's frame)
+			const auto& mo = a.bodies[k].body->motion;
+			const auto* d = reinterpret_cast<const float*>(&mo.inertiaAndMassInv);
+			const auto* qc = reinterpret_cast<const float*>(&mo.motionState.sweptTransform.rotation1);
+			const Q     q{ qc[0], qc[1], qc[2], qc[3] };
+			const V3    ax[3]{ Rot(q, { 1, 0, 0 }), Rot(q, { 0, 1, 0 }), Rot(q, { 0, 0, 1 }) };
+			M3          m{};
+			for (int r = 0; r < 3; ++r) {
+				for (int col = 0; col < 3; ++col) {
+					float s = 0;
+					for (int e = 0; e < 3; ++e) {
+						const float* v = &ax[e].x;
+						s += v[r] * d[e] * v[col];
+					}
+					m[r * 3 + col] = s;
+				}
+			}
+			inv[k] = m;
+		}
+		const float     h = std::clamp(a_dt, 0.0f, 0.05f) * gain_;
+		std::vector<V3> dw(n), dv(n);
+		for (int p = 1; p < 21; ++p) {
+			const int c = a.partBody[p], pb = a.partBody[kParent[p]];
+			const float* ac = a.acc.data() + p * 3;
+			if (c < 0 || pb < 0 || c == pb || !std::isfinite(ac[0] + ac[1] + ac[2])) {
+				continue;
+			}
+			V3          want = Scl({ ac[0], ac[1], ac[2] }, h);
+			const float lw = len(want);
+			if (lw > a.maxWant) {
+				a.maxWant = lw;
+				a.wantPart = p;
+				a.wantAge = a.age;
+			}
+			if (lw > 30.0f) {
+				want = Scl(want, 30.0f / lw);
+				++a.clamped;
+			}
+			// torque t with (inv_c + inv_p) t = want: the child turns by inv_c t, the parent back by inv_p t
+			M3 s{};
+			for (int e = 0; e < 9; ++e) {
+				s[e] = inv[c][e] + inv[pb][e];
+			}
+			const float det = s[0] * (s[4] * s[8] - s[5] * s[7]) - s[1] * (s[3] * s[8] - s[5] * s[6]) + s[2] * (s[3] * s[7] - s[4] * s[6]);
+			if (!(std::abs(det) > 1e-12f)) {
+				continue;
+			}
+			const M3 si{ (s[4] * s[8] - s[5] * s[7]) / det, (s[2] * s[7] - s[1] * s[8]) / det, (s[1] * s[5] - s[2] * s[4]) / det,
+				(s[5] * s[6] - s[3] * s[8]) / det, (s[0] * s[8] - s[2] * s[6]) / det, (s[2] * s[3] - s[0] * s[5]) / det,
+				(s[3] * s[7] - s[4] * s[6]) / det, (s[1] * s[6] - s[0] * s[7]) / det, (s[0] * s[4] - s[1] * s[3]) / det };
+			const V3 t = mul(si, want);
+			dw[c] = Add(dw[c], mul(inv[c], t));
+			dw[pb] = Sub(dw[pb], mul(inv[pb], t));
+		}
+		for (int p = 0; p < 21; ++p) {
+			const int    k = a.partBody[p];
+			const float* d = a.drv.data() + p * 6;
+			if (k >= 0 && std::isfinite(d[0] + d[1] + d[2])) {
+				const float im = reinterpret_cast<const float*>(&a.bodies[k].body->motion.inertiaAndMassInv)[3];
+				dv[k] = Add(dv[k], Scl({ d[0], d[1], d[2] }, im * h));
+			}
+		}
+		for (std::size_t k = 0; k < n; ++k) {
+			auto& b = a.bodies[k];
+			auto& mo = b.body->motion;
+			V3    v = dv[k];
+			if (const float l = len(v); l > 3.0f) {
+				v = Scl(v, 3.0f / l);
+			}
+			a.maxDw = std::max(a.maxDw, len(dw[k]));
+			auto*    lv = reinterpret_cast<float*>(&mo.linearVelocity);
+			auto*    av = reinterpret_cast<float*>(&mo.angularVelocity);
+			const V3 nl{ lv[0] + v.x, lv[1] + v.y, lv[2] + v.z };
+			V3       na{ av[0] + dw[k].x, av[1] + dw[k].y, av[2] + dw[k].z };
+			// Delirium's own cap on a body's spin (3 turns/s, MAX_SPIN_NM): its muscles never spin a body past it. Spin
+			// Skyrim's contacts gave the body is kept
+			const float was = len({ av[0], av[1], av[2] }), now = len(na);
+			if (now > kMaxSpin && now > was) {
+				na = Scl(na, std::max(was, kMaxSpin) / now);
+				++a.spinCapped;
+			}
+			if (!std::isfinite(nl.x + nl.y + nl.z + na.x + na.y + na.z)) {
+				continue;
+			}
+			lv[0] = nl.x, lv[1] = nl.y, lv[2] = nl.z, lv[3] = 0;
+			av[0] = na.x, av[1] = na.y, av[2] = na.z, av[3] = 0;
+			b.lin = nl;
+			b.ang = na;
+			b.hasTarget = true;  // re-applied after Skyrim's own driver, as the steering is
+			a.maxSpeed = std::max(a.maxSpeed, len(nl));
+		}
+	}
+
 	void Engine::BodyTarget(const Active& a, const BodyLink& l, V3& a_pos, Q& a_rot) const
 	{
 		V3 bp;
@@ -1827,6 +2037,11 @@ namespace delirium
 			}
 			a.driver = a_driver;
 			if (!a.calibrated || !a_driver->ragdoll || a.handedBack) {
+				return;
+			}
+			if (!a_after && a.following && TorqueMode(a)) {
+				ApplyTorques(a, a_dt);
+				++a.drives;
 				return;
 			}
 			if (a_after) {

@@ -97,7 +97,15 @@ namespace delirium
 			int                                syncs{};
 			float                              maxRound{}, maxRoundAng{};  // sync check: Skyrim -> Delirium -> Skyrim body error
 			std::string                        roundBody;
-			std::string                        roundLog;      // native: farthest body from Delirium's pose since the last log line (m)
+			std::string                        roundLog;
+			bool                               following{};   // torque drive: Delirium in FOLLOW mode on Skyrim's ragdoll
+			bool                               haveDrv{};
+			std::array<float, 21 * 6>          drv{};         // Delirium's force and torque per part from its last step (world)
+			std::array<int, 21>                partBody{};    // the body (index in bodies) each part's drive goes to
+			std::array<float, 21 * 3>          acc{};         // Delirium's joint accelerations from its last step (world)
+			float                              maxDw{}, maxWant{};
+			int                                clamped{}, spinCapped{}, wantPart{};
+			float                              wantAge{};      // native: farthest body from Delirium's pose since the last log line (m)
 			bool                               handedBack{};  // corpse: bodies have their mass back, no more steering
 			bool                               haveCarry{};   // corpse: ours vs Skyrim's pose measured (carryCom, carryBone)
 			RE::NiTransform                    carryCom;      // COM local: ours = Skyrim's * carryCom
@@ -134,6 +142,9 @@ namespace delirium
 		void Push(Active& a_act, RE::Actor* a_actor);
 		float BodyVelocities(const Active& a, std::array<V3, 21>& v, std::array<V3, 21>& w, std::array<bool, 21>& have) const;
 		void  SyncFromSkyrim(Active& a);
+		bool  TorqueMode(const Active& a) const;
+		void  MapParts(Active& a);
+		void  ApplyTorques(Active& a, float a_dt);
 		void  PartsFromBodies(const Active& a, std::array<V3, 21>& pos, std::array<Q, 21>& rot) const;
 		float PartsFromBones(const Active& a, std::array<V3, 21>& pos, std::array<Q, 21>& rot, std::string* detail) const;
 		void  SetZeroPose(Active& a, const std::array<V3, 21>& pos, const std::array<Q, 21>& rot);
@@ -168,6 +179,8 @@ namespace delirium
 		bool          native_{ true };    // [Ragdoll] bNative: taken-over ragdolls keep their mass, Skyrim poses the bones
 		float         strength_{ 0.35f }; // [Ragdoll] fStrength: share of the way to Delirium's velocity per step
 		bool          sync_{ false };     // [Ragdoll] bSync: Delirium's body put on Skyrim's ragdoll after each physics step
+		bool          torque_{ true };    // [Ragdoll] bTorque: Delirium follows Skyrim's ragdoll and its muscles move it
+		float         gain_{ 1.0f };      // [Ragdoll] fTorqueGain
 		float         colRadius_{ 600.0f }, colHeight_{ 300.0f };  // game units around the NPC
 		std::size_t   colMaxTris_{ 40000 };
 	};
