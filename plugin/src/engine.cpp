@@ -259,6 +259,7 @@ namespace delirium
 			float                                 strike{};  // a melee blow's push, N s (0: not one)
 			RE::NiPoint3                          strikeDir;  // its way (unit)
 			int                                   element{ -1 };  // a spell's (Element): its explosion's, which has none of its own
+			bool                                  shout{};        // a shout's (a voice power's) hit
 		};
 		std::mutex                              g_hitLock;
 		std::unordered_map<RE::FormID, LastHit> g_lastHit;
@@ -276,6 +277,7 @@ namespace delirium
 				if (!h.from) {
 					h.from = a_hit.from;
 				}
+				h.shout |= a_hit.shout;
 				return;
 			}
 			h = a_hit;
@@ -382,13 +384,17 @@ namespace delirium
 			{ "down.magic", "writhe" },
 			{ "down.fire", "roll, amp:2.2, period:0.4" },
 			{ "down.shock", "writhe, amp:1.3, period:0.3, shock" },
-			{ "down.frost", "foetal, shiver" }
+			{ "down.frost", "foetal, shiver" },
+			{ "fly.shout", "foetal:50, windmill:30, rollup:20" },
+			{ "fly.shout.far", "highfall:60, foetal:25, windmill:15" }
 			};
 			rules_.clear();
 			for (const auto& [k, v] : kTable) {
 				rules_[k] = ParseRule(v);
 			}
 			heavyOomph_ = std::clamp(static_cast<float>(ini.GetDoubleValue("Reactions", "fHeavyOomph", 0.5)), 0.0f, 1.01f);
+			shoutThrowFrom_ = std::clamp(static_cast<float>(ini.GetDoubleValue("Shouts", "fThrowFrom", 0.6)), 0.0f, 1.01f);
+			shoutFly_ = std::max(0.0f, static_cast<float>(ini.GetDoubleValue("Shouts", "fFlySpeed", 9.0)));
 			CSimpleIniA::TNamesDepend keys;
 			ini.GetAllKeys("Reactions", keys);
 			int own = 0;
@@ -1327,8 +1333,7 @@ namespace delirium
 	const Engine::Rule& Engine::PickRule(const char* a_phase, const Blow& a_blow, bool a_lethal, std::string& a_key) const
 	{
 		// the most exact row there is: phase.type.strength, phase.strength, phase.type, phase
-		static constexpr const char* kTypes[]{ "other", "melee", "arrow", "spell", "blast", "stagger" };
-		const char*       type = kTypes[std::clamp(a_blow.type, 0, 5)];
+		const char*       type = TypeName(a_blow.type);
 		const char*       band = a_lethal ? "lethal" : a_blow.push < flinchBelow_ ? "light" : a_blow.oomph >= heavyOomph_ ? "heavy" : "";
 		const std::string p(a_phase);
 		std::vector<std::string> tries;
@@ -1358,6 +1363,12 @@ namespace delirium
 			}
 		}
 		return nullptr;
+	}
+
+	const char* Engine::TypeName(int a_type)
+	{
+		static constexpr const char* kNames[]{ "other", "melee", "arrow", "spell", "blast", "stagger", "knock", "shout" };
+		return kNames[std::clamp(a_type, 0, 7)];
 	}
 
 	const char* Engine::ElementName(int a_element)
@@ -1484,7 +1495,7 @@ namespace delirium
 			Fly(a, a_actor, b);
 			return;
 		}
-		if (a.flying > 0 && !a.knockQueued) {
+		if (a.flying > 0 && (!a.knockQueued || a.takeover)) {
 			// in the air: the throw's behaviours play on, the blow only adds its push (a killing blow too: she dies once down)
 			if (held_.contains(a_actor->GetFormID())) {
 				a.heldDeath = true;
@@ -1632,10 +1643,9 @@ namespace delirium
 		// the blow moves the part it landed on: Skyrim's body once it is in its ragdoll (Delirium only follows it then),
 		// else Delirium's own. A blast (thrown) moves all of her
 		// a body on the ground takes less than one on its feet: no stance to knock out ([Reactions] downhit push)
-		static constexpr const char* kTypes[]{ "other", "melee", "arrow", "spell", "blast", "stagger" };
 		std::string     key = "(none)";
 		static const Rule kDefault = ParseRule("react, push:0.6");
-		const Rule*     found = FindRule({ std::string("downhit.") + kTypes[std::clamp(b.type, 0, 5)], "downhit" }, key);
+		const Rule*     found = FindRule({ std::string("downhit.") + TypeName(b.type), "downhit" }, key);
 		const Rule&     rule = found ? *found : kDefault;
 		const float     cap = b.melee ? meleeMaxPush_ : hitMaxPush_;
 		const float     push = std::min(b.push, cap) * rule.Value("push", 1.0f);
@@ -1722,6 +1732,11 @@ namespace delirium
 			}
 			keys.push_back("fly." + el);
 		}
+		const std::string ty = TypeName(b.type);
+		if (isFar) {
+			keys.push_back("fly." + ty + ".far");
+		}
+		keys.push_back("fly." + ty);
 		if (isFar) {
 			keys.push_back("fly.far");
 		}
@@ -1796,17 +1811,19 @@ namespace delirium
 			layer += ", electrocuted";
 		}
 		const float dv[3]{ b.fly.x, b.fly.y, b.fly.z };
-		if (dl.nm_agent_add_velocity(a.agent, dv) < 0) {
+		if (!b.inherited && dl.nm_agent_add_velocity(a.agent, dv) < 0) {
 			logger::error("  thrown: {}", LastError());
 		}
 		// the head goes first, the legs swing under: a tumble (a little sideways, random)
 		float hp[3]{}, hq[4]{};
 		dl.nm_agent_get_part_transform(a.agent, kHead, hp, hq);
-		const float t = tumble_ * rule.Value("tumble", 1.0f) * along * Rand(0.8f, 1.2f);
+		const float t = b.inherited ? 0.0f : tumble_ * rule.Value("tumble", 1.0f) * along * Rand(0.8f, 1.2f);
 		const float side = Rand(-0.35f, 0.35f);
 		const float fx = along > 1e-3f ? b.fly.x / along : 0.0f, fy = along > 1e-3f ? b.fly.y / along : 0.0f;
 		const float imp[3]{ t * (fx - side * fy), t * (fy + side * fx), 0.0f };
-		dl.nm_agent_apply_push(a.agent, hp, imp);
+		if (t > 0.0f) {
+			dl.nm_agent_apply_push(a.agent, hp, imp);
+		}
 		a.flying = 1;
 		a.flyAt = a.age;
 		a.braced = false;
@@ -2190,6 +2207,16 @@ namespace delirium
 		// where the blow landed if it was on her (a sword's edge, a shield bash), else the chest
 		b.exact = hit && last.exact && !(last.flags & kExplosion);
 		b.at = last.at;
+		if (hit && last.shout && !b.melee) {
+			// a shout: its own row; strong, it throws her (Unrelenting Force), along the push, up as a blast throws
+			b.what = "shout";
+			b.type = kBlowShout;
+			b.oomph = a_magnitude;
+			if (a_magnitude >= shoutThrowFrom_ && shoutFly_ > 0.0f) {
+				const float v = shoutFly_ * a_magnitude * Rand(0.9f, 1.1f);
+				b.fly = { b.dir.x * v, b.dir.y * v, flyUp_ * v };
+			}
+		}
 		b.note = fmt::format("magnitude {:.2f}, {}, {:.0f} damage x{:.2f}, oomph {:.2f}", a_magnitude, why, hit ? last.damage : 0.0f, scale, b.oomph);
 		React(a_target, b);
 	}
@@ -2532,6 +2559,7 @@ namespace delirium
 					h.from = cause->GetHandle();
 					h.damage = SpellDamage(magic);
 					h.element = Element(magic);
+					h.shout = magic && magic->GetSpellType() == RE::MagicSystem::SpellType::kVoicePower;
 					RecordHit(target->GetFormID(), h);
 				}
 				int  kind = -1;
@@ -3085,14 +3113,44 @@ namespace delirium
 				held = heldDied_.erase(self->GetFormID()) > 0;
 			}
 			StartDying(a, { cv[0], cv[1], 0.0f }, held);
+		} else if (a.takeover) {
+			Knocked(a, { cv[0], cv[1], cv[2] });
 		}
+	}
+
+	void Engine::Knocked(Active& a, const V3& a_vel)
+	{
+		// Skyrim knocked her down by itself (a shout, a trap, a script's push, its own stagger fall): thrown fast, the
+		// throw's behaviours on Skyrim's own motion (the fly rows, type knock); else she falls over, breaks the fall and
+		// reacts on the ground (the down rows)
+		auto self = a.actor.get();
+		if (!self) {
+			return;
+		}
+		const float along = std::sqrt(a_vel.x * a_vel.x + a_vel.y * a_vel.y);
+		if (along >= flyMin_) {
+			Blow b;
+			b.what = "Skyrim's knock";
+			b.note = "taken over";
+			b.type = kBlowKnock;
+			b.fly = a_vel;
+			b.inherited = true;
+			b.oomph = std::clamp(along / std::max(flyMax_, 1e-3f), 0.0f, 1.0f);
+			Fly(a, self.get(), b);
+			return;
+		}
+		a.lastType = kBlowKnock;
+		a.writheFor = writheTime_;
+		a.writheOomph = 0.0f;
+		a.writheElement = -1;
+		a.writheAt = a.age + 0.8f;  // once she is down
+		logger::info("{:08X}: Skyrim's knock, {:.1f} m/s: falling over, breaking the fall, then reacting on the ground", self->GetFormID(), along);
 	}
 
 	void Engine::StartDying(Active& a, const V3& a_moving, bool a_held)
 	{
 		// the reaction table: die.held(.element) after dying on her feet, else die.element, die.type, die (her last blow);
 		// by default from [Deaths]
-		static constexpr const char* kTypes[]{ "other", "melee", "arrow", "spell", "blast", "stagger" };
 		const std::string el = ElementName(a.lastElement);
 		std::vector<std::string> keys;
 		if (a_held) {
@@ -3105,7 +3163,7 @@ namespace delirium
 				keys.push_back("die." + el);
 			}
 			if (a.lastType >= 0) {
-				keys.push_back(std::string("die.") + kTypes[std::clamp(a.lastType, 0, 5)]);
+				keys.push_back(std::string("die.") + TypeName(a.lastType));
 			}
 			keys.push_back("die");
 		}
@@ -3349,7 +3407,7 @@ namespace delirium
 				}
 			}
 			a.wasBalancing |= balancing;
-			if (a.flying > 0 && !a.knockQueued) {
+			if (a.flying > 0 && (!a.knockQueued || a.takeover)) {
 				float cp[3]{}, cv[3]{};
 				dl.nm_agent_get_com(a.agent, cp, cv);
 				// thrown at something (a wall, a rock, the ground coming up): arms out at it
@@ -3552,12 +3610,19 @@ namespace delirium
 			}
 			// thrown: no balancer runs in the air, so Delirium never calls it a fall; down is her head near the ground
 			bool landed = false;
-			if (a.flying > 0 && !a.knockQueued) {
+			if (a.flying > 0 && (!a.knockQueued || a.takeover)) {
 				float hp[3]{}, hq[4]{};
 				dl.nm_agent_get_part_transform(a.agent, kHead, hp, hq);
 				landed = (a.flying == 2 && a.age - a.flyAt > 0.5f && hp[2] < 0.6f) || a.age - a.flyAt > 3.0f;
 				if (landed) {
 					logger::info("{:08X}: landed after {:.2f} s (head at {:.2f} m)", a_actor->GetFormID(), a.age - a.flyAt, hp[2]);
+					if (a.knockQueued) {
+						// Skyrim's own throw: she is in its ragdoll already, only her reaction on the ground is left
+						a.flying = 0;
+						if (a.writheFor > 0.0f && !a.death) {
+							a.writheAt = a.age + 0.3f;
+						}
+					}
 				}
 			}
 			// thrown: only the landing counts (her balance stopped in the air on purpose)

@@ -235,9 +235,12 @@ namespace delirium
 			V3           fly{};          // m/s: thrown (an explosion), alive in the air; zero: on her feet
 			bool         melee{};        // a weapon blow (or the stagger it makes): its oomph is from how much harder than a plain blow
 			int          type{ 0 };      // BlowType: its row in the reaction table
+			bool         inherited{};    // fly: she already moves (Skyrim's own knock, taken over): no velocity or tumble of ours
 		};
 		// the reaction table ([Reactions]): a blow's phase, type and strength pick one rule, a base behaviour and its layers
-		enum BlowType : int { kBlowOther, kBlowMelee, kBlowArrow, kBlowSpell, kBlowBlast, kBlowStagger };
+		enum BlowType : int { kBlowOther, kBlowMelee, kBlowArrow, kBlowSpell, kBlowBlast, kBlowStagger, kBlowKnock, kBlowShout };
+		static const char* TypeName(int a_type);  // other, melee, arrow, spell, blast, stagger, knock, shout
+		void               Knocked(Active& a, const V3& a_vel);  // Skyrim knocked her down itself (a shout, a trap, a script): her reaction
 		struct Rule
 		{
 			std::string                                base;    // shot, flinch, step, none
@@ -334,7 +337,9 @@ namespace delirium
 		float         collapseMin_{ 0.8f }, collapseMax_{ 1.6f };  // [Deaths] fCollapseAfterMin/Max: s she fights to stay up, dying
 		float         dyingTime_{ 3.0f };
 		std::unordered_map<std::string, Rule> rules_;  // [Reactions], over the built-in table
-		float         heavyOomph_{ 0.5f };  // [Reactions] fHeavyOomph: from this oomph a blow is heavy     // [Deaths] fDyingTime: s she may die on her feet before the death goes through (0: off)
+		float         heavyOomph_{ 0.5f };  // [Reactions] fHeavyOomph: from this oomph a blow is heavy
+		float         shoutThrowFrom_{ 0.6f };  // [Shouts] fThrowFrom: a shout's stagger from this magnitude throws her
+		float         shoutFly_{ 9.0f };        // [Shouts] fFlySpeed: m/s she is thrown at, at magnitude 1     // [Deaths] fDyingTime: s she may die on her feet before the death goes through (0: off)
 		std::unordered_map<RE::FormID, Held> held_;      // deaths held back (under lock_)
 		std::unordered_set<RE::FormID>       heldDied_;  // killed after a hold: her death ragdoll gets no new shot or push
 		std::atomic<RE::Actor*>              letKill_{ nullptr };  // the kill we make ourselves goes through
