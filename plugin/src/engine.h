@@ -314,6 +314,7 @@ namespace delirium
 
 		// settings
 		std::string   fredPath_, buildPath_, rigPath_;
+		bool          usingGta_{ false };
 		std::uint32_t pushKey_{ 0x41 }, releaseKey_{ 0x3C };  // F7, F2
 		float         push_{ 80.0f };
 		bool          autoRelease_{ true };

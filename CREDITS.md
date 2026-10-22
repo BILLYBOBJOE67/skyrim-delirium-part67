@@ -11,7 +11,11 @@ FOLLOW hosts); that fork's source is published with each release.
 
 ## Game data
 
-This mod ships no GTA IV data. Delirium reads the character it needs from the player's own copy of GTA IV at startup.
+This mod ships no GTA IV data. Its character (`plugin/data/skyrim_character.json` and `skyrim_character_rig.txt`: body
+parts, masses, joints, limits and muscles) is our own, made by `fit-test/examples/make_character.rs` from the joint
+positions of the Skyrim male skeleton (as laid out by XP32 Maximum Skeleton / True Ragdoll Physics) and our own values.
+Players who own GTA IV can point `sGTAFile` at their own copy of `Fred.art`; Delirium then reads its character from it
+at startup, on the mod's body.
 Nothing in this repository is extracted from GTA IV or derived from its files: data read from local game installs lives in
 `local/`, which is never committed or shipped.
 

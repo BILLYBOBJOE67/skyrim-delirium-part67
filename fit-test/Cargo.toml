@@ -10,6 +10,7 @@ delirium-sdk = { path = "../../gta iv/delirium-physics/crates/delirium-sdk" }
 serde_json = "1"
 glam = "0.30"
 delirium-data = { path = "../../gta iv/delirium-physics/crates/delirium-data" }
+delirium = { path = "../../gta iv/delirium-physics/crates/delirium" }
 
 [profile.release]
 debug = false

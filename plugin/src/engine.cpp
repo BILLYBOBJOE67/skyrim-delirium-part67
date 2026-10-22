@@ -57,7 +57,8 @@ namespace delirium
 	X(nm_agent_set_part_state) X(nm_agent_get_kinetic_energy) X(nm_agent_apply_push) X(nm_agent_add_velocity) X(nm_msg_begin)           \
 	X(nm_msg_set_bool) X(nm_msg_set_int) X(nm_msg_set_float) X(nm_msg_set_string) X(nm_msg_set_vec3) X(nm_msg_send) X(nm_agent_is_balancing) X(nm_agent_has_fallen) X(nm_agent_set_zero_pose) \
 	X(nm_build_scale) X(nm_build_destroy) X(nm_world_add_mesh) X(nm_world_raycast) X(nm_world_triangle_count) X(nm_agent_get_com) X(nm_agent_task_shot) X(nm_agent_task_balance) X(nm_agent_task_flinch) \
-	X(nm_agent_get_part_drives) X(nm_build_part_info) X(nm_agent_get_joint_accels) X(nm_agent_get_part_ext_torques) X(nm_agent_get_joint)
+	X(nm_agent_get_part_drives) X(nm_build_part_info) X(nm_agent_get_joint_accels) X(nm_agent_get_part_ext_torques) X(nm_agent_get_joint) \
+	X(nm_init_character_file) X(nm_build_from_character)
 		struct Api
 		{
 #define DL_DECL(f) decltype(&::f) f = nullptr;
@@ -331,9 +332,10 @@ namespace delirium
 		CSimpleIniA ini;
 		ini.SetUnicode();
 		ini.LoadFile("Data/SKSE/Plugins/SkyrimDelirium.ini");
-		fredPath_ = ini.GetValue("Data", "sCharacterFile", "");
-		buildPath_ = ini.GetValue("Data", "sBody", "Data/SKSE/Plugins/SkyrimDelirium/skyrim_build.txt");
-		rigPath_ = ini.GetValue("Data", "sRig", "Data/SKSE/Plugins/SkyrimDelirium/skyrim_rig.txt");
+		// GTA IV's Fred.art from the player's own install (optional; sCharacterFile is the older name), else the mod's own
+		fredPath_ = ini.GetValue("Data", "sGTAFile", ini.GetValue("Data", "sCharacterFile", ""));
+		buildPath_ = ini.GetValue("Data", "sCharacter", "Data/SKSE/Plugins/SkyrimDelirium/skyrim_character.json");
+		rigPath_ = ini.GetValue("Data", "sRig", "Data/SKSE/Plugins/SkyrimDelirium/skyrim_character_rig.txt");
 		pushKey_ = static_cast<std::uint32_t>(ini.GetLongValue("Test", "iPushKey", 0x41));
 		releaseKey_ = static_cast<std::uint32_t>(ini.GetLongValue("Test", "iReleaseKey", 0x3C));
 		push_ = static_cast<float>(ini.GetDoubleValue("Test", "fPush", 80.0));
@@ -489,8 +491,8 @@ namespace delirium
 		logger::info("spells: shot reaction {}, burn {:.1f} s, shock {:.1f} s", spells_, burnTime_, shockTime_);
 		wounded_ = std::clamp(static_cast<float>(ini.GetDoubleValue("Arrows", "fWoundedBelow", 0.2)), 0.0f, 1.0f);
 		logger::info("arrows: shot reaction {}, push {:.0f} N s, wounded below {:.0f}% health", arrows_, arrowPush_, wounded_ * 100.0f);
-		logger::info("settings: character file '{}', push key {:#x}, release key {:#x}, push {} N s, follow animation {}, take over Skyrim's ragdolls {}",
-			fredPath_, pushKey_, releaseKey_, push_, followAnimation_, takeOver_);
+		logger::info("settings: GTA IV file '{}', character '{}', push key {:#x}, release key {:#x}, push {} N s, follow animation {}, take over Skyrim's ragdolls {}",
+			fredPath_, buildPath_, pushKey_, releaseKey_, push_, followAnimation_, takeOver_);
 	}
 
 	bool Engine::Init()
@@ -501,15 +503,25 @@ namespace delirium
 		if (!LoadApi()) {
 			return false;
 		}
-		if (fredPath_.empty()) {
-			logger::error("no character file: set sCharacterFile in SkyrimDelirium.ini (GTA IV's pc/data/naturalmotion/Fred.art)");
+		// the body (parts, masses, shapes) is always the mod's own character; its brain (joints, muscles, zero pose) is
+		// GTA IV's Fred.art when the player points sGTAFile at their own copy and it exists, else the character's own
+		std::ifstream cf(buildPath_, std::ios::binary);
+		const std::string text((std::istreambuf_iterator<char>(cf)), std::istreambuf_iterator<char>());
+		if (!cf) {
+			logger::error("can't read character {}", buildPath_);
 			return false;
 		}
-		if (dl.nm_init(fredPath_.c_str()) < 0) {
-			logger::error("nm_init({}): {}", fredPath_, LastError());
+		std::error_code ec;
+		const bool gta = !fredPath_.empty() && std::filesystem::is_regular_file(fredPath_, ec);
+		if (!fredPath_.empty() && !gta) {
+			logger::warn("GTA IV file {} not found: using the mod's own character", fredPath_);
+		}
+		if (gta ? dl.nm_init(fredPath_.c_str()) < 0 : dl.nm_init_character_file(buildPath_.c_str()) < 0) {
+			logger::error("character {}: {}", gta ? fredPath_ : buildPath_, LastError());
 			return false;
 		}
-		build_ = dl.nm_build_load(buildPath_.c_str());
+		usingGta_ = gta;
+		build_ = dl.nm_build_from_character(text.c_str());
 		if (!build_) {
 			logger::error("body {}: {}", buildPath_, LastError());
 			return false;
@@ -556,7 +568,7 @@ namespace delirium
 		}
 		HookArrows();
 		NoKillMoves();
-		logger::info("ready: body {}, rig {} (build faces {:.2} rad)", buildPath_, rigPath_, rigYaw_);
+		logger::info("ready: {} on body {}, rig {} (build faces {:.2} rad)", usingGta_ ? fredPath_ : std::string("own character"), buildPath_, rigPath_, rigYaw_);
 		return true;
 	}
 

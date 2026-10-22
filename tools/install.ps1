@@ -1,7 +1,7 @@
 # Builds the plugin and lays the mod out in an MO2 mod folder:
 #   SKSE\Plugins\SkyrimDelirium.dll, SkyrimDelirium.ini
-#   SKSE\Plugins\SkyrimDelirium\delirium_physics.dll, skyrim_build.txt, skyrim_rig.txt
-# The body and rig are made from the user's own GTA IV data (local\): local use only, never packaged for release.
+#   SKSE\Plugins\SkyrimDelirium\delirium_physics.dll, skyrim_character.json, skyrim_character_rig.txt
+# The character and rig are our own (plugin\data, made by fit-test\examples\make_character.rs).
 param(
 	[string]$Mod = '',
 	[string]$Delirium = '',
@@ -30,8 +30,8 @@ $copy = @(
 	@("$root\plugin\build\Release\SkyrimDeliriumCore.dll", $data),
 	@("$root\plugin\build\Release\SkyrimDeliriumCore.pdb", $data),
 	@("$Delirium\target\release\delirium_physics.dll", $data),
-	@("$root\local\skyrim_build.txt", $data),
-	@("$root\local\skyrim_rig.txt", $data)
+	@("$root\plugin\data\skyrim_character.json", $data),
+	@("$root\plugin\data\skyrim_character_rig.txt", $data)
 )
 foreach ($c in $copy) {
 	if (-not (Test-Path $c[0])) { Write-Output "MISSING: $($c[0])"; exit 1 }

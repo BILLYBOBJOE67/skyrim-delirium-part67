@@ -667,8 +667,67 @@ unsafe fn write_rig(path: &str, homer: *const NmBuild, body: *const NmBuild, joi
     }
 }
 
+/// The scenes and fall thresholds, one row per body.
+unsafe fn report(bodies: &[(&str, *const NmBuild)]) {
+    unsafe {
+            let w = nm_world_create();
+            nm_world_add_floor(w, 0.0, 0.0, 0.0, 50.0);
+            let scenes = [("stand 6 s", Scene::Stand), ("shove 60 N s", Scene::Shove(60.0)), ("shove 150 N s", Scene::Shove(150.0)), ("shot (chest)", Scene::Shot)];
+            println!("{:14} {:7} {:>9} {:>9} {:>8} {:>6} {:>8} {:>7} {:>6}", "scene", "body", "head min", "head end", "fell at", "bal", "max KE", "finite", "ms");
+            for (name, s) in scenes {
+                for &(bn, b) in bodies {
+                    let o = run(b, w, s, 6.0);
+                    println!("{name:14} {bn:7} {:9.2} {:9.2} {:>8} {:>6} {:8.0} {:>7} {:6.3}", o.head_min, o.head_end,
+                        o.fell_at.map_or("-".into(), |t| format!("{t:.2}s")), if o.balancing_end { "yes" } else { "no" }, o.max_ke,
+                        if o.finite { "yes" } else { "NO" }, o.ms);
+                }
+            }
+            // smallest impulse that knocks each body down, per direction
+            println!("\nfall threshold (N s, 4 s run)   backward  forward  side");
+            for &(bn, b) in bodies {
+                let mut row = format!("{bn:31}");
+                for d in 0..3u8 {
+                    let t = (1..=15).map(|k| k as f32 * 20.0).find(|&n| run(b, w, Scene::Push(n, d), 4.0).fell_at.is_some());
+                    row += &format!(" {:>8}", t.map_or(">300".into(), |n| format!("{n:.0}")));
+                }
+                println!("{row}");
+            }
+    }
+}
+
+/// SCENES=1 or a .json character: just the scenes, for one body (a character file with its build, or a character
+/// and a build file). Runs one body per process (the character is global).
+unsafe fn scenes_only(a: &[String]) {
+    unsafe {
+        let json = a[1].ends_with(".json");
+        let ok = if json { delirium_physics::character::nm_init_character_file(c(&a[1]).as_ptr()) } else { nm_init(c(&a[1]).as_ptr()) };
+        assert!(ok >= 0, "init: {}", err());
+        let b = match a.get(2) {
+            // a character .json as the body: its build on this character's brain (e.g. Fred.art)
+            Some(p) if p.ends_with(".json") => delirium_physics::character::nm_build_from_character(c(&std::fs::read_to_string(p).unwrap()).as_ptr()),
+            Some(p) => nm_build_load(c(p).as_ptr()),
+            None => delirium_physics::character::nm_build_from_character(c(&std::fs::read_to_string(&a[1]).unwrap()).as_ptr()),
+        };
+        assert!(!b.is_null(), "build: {}", err());
+        let (mut kg, mut parent) = (0.0f32, 0);
+        for i in 0..21 {
+            let mut m = 0.0;
+            nm_build_part_info(b, i, &mut m, std::ptr::null_mut(), std::ptr::null_mut(), &mut parent);
+            kg += m;
+        }
+        println!("body {} ({kg:.1} kg)
+", a.get(2).unwrap_or(&a[1]));
+        let name = std::path::Path::new(a.get(2).unwrap_or(&a[1])).file_stem().unwrap().to_string_lossy().chars().take(7).collect::<String>();
+        report(&[(&name, b)]);
+    }
+}
+
 fn main() {
     let a: Vec<String> = std::env::args().collect();
+    if a.len() >= 2 && (a[1].ends_with(".json") || std::env::var("SCENES").is_ok()) {
+        unsafe { scenes_only(&a) };
+        return;
+    }
     if a.len() < 4 {
         eprintln!("usage: fit-test <Fred.art> <homer_build.txt> <joints.json>");
         std::process::exit(2);
@@ -825,27 +884,6 @@ fn main() {
             println!("saved fitted build to {p}");
             return;
         }
-        let w = nm_world_create();
-        nm_world_add_floor(w, 0.0, 0.0, 0.0, 50.0);
-        let scenes = [("stand 6 s", Scene::Stand), ("shove 60 N s", Scene::Shove(60.0)), ("shove 150 N s", Scene::Shove(150.0)), ("shot (chest)", Scene::Shot)];
-        println!("{:14} {:7} {:>9} {:>9} {:>8} {:>6} {:>8} {:>7} {:>6}", "scene", "body", "head min", "head end", "fell at", "bal", "max KE", "finite", "ms");
-        for (name, s) in scenes {
-            for (bn, b) in [("homer", homer), ("skyrim", fitted)] {
-                let o = run(b, w, s, 6.0);
-                println!("{name:14} {bn:7} {:9.2} {:9.2} {:>8} {:>6} {:8.0} {:>7} {:6.3}", o.head_min, o.head_end,
-                    o.fell_at.map_or("-".into(), |t| format!("{t:.2}s")), if o.balancing_end { "yes" } else { "no" }, o.max_ke,
-                    if o.finite { "yes" } else { "NO" }, o.ms);
-            }
-        }
-        // smallest impulse that knocks each body down, per direction
-        println!("\nfall threshold (N s, 4 s run)   backward  forward  side");
-        for (bn, b) in [("homer", homer), ("skyrim", fitted)] {
-            let mut row = format!("{bn:31}");
-            for d in 0..3u8 {
-                let t = (1..=15).map(|k| k as f32 * 20.0).find(|&n| run(b, w, Scene::Push(n, d), 4.0).fell_at.is_some());
-                row += &format!(" {:>8}", t.map_or(">300".into(), |n| format!("{n:.0}")));
-            }
-            println!("{row}");
-        }
+        report(&[("homer", homer), ("skyrim", fitted)]);
     }
 }
