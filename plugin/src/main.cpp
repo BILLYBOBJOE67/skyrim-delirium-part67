@@ -310,6 +310,108 @@ namespace
 		}
 	};
 
+	// A hook at a function's first bytes, for functions with many callers: its opening instructions (a_expect, whole
+	// instructions with nothing position dependent) are copied into the trampoline followed by a jump back past them,
+	// and the function's start jumps to a_thunk. A start that is already a jump (another mod hooked it first) is
+	// chained instead. Returns what calls the original, 0 if the bytes were not what we know (nothing is patched).
+	std::uintptr_t HookEntry(std::uintptr_t a_fn, std::span<const std::uint8_t> a_expect, void* a_thunk, const char* a_name)
+	{
+		const auto  base = REL::Module::get().base();
+		const auto* p = reinterpret_cast<const std::uint8_t*>(a_fn);
+		auto&       t = SKSE::GetTrampoline();
+		auto        absJump = [](std::uint8_t* at, std::uintptr_t to) {
+			const std::uint8_t op[6]{ 0xFF, 0x25, 0, 0, 0, 0 };  // jmp [rip+0]
+			std::memcpy(at, op, 6);
+			std::memcpy(at + 6, &to, 8);
+		};
+		std::uintptr_t orig = 0;
+		if (p[0] == 0xE9) {
+			const auto target = a_fn + 5 + *reinterpret_cast<const std::int32_t*>(p + 1);
+			auto*      stub = static_cast<std::uint8_t*>(t.allocate(14));
+			absJump(stub, target);
+			orig = reinterpret_cast<std::uintptr_t>(stub);
+			logger::info("{} hook: +{:X} already jumps to +{:X} (another mod): chained", a_name, a_fn - base, target - base);
+		} else if (std::memcmp(p, a_expect.data(), a_expect.size()) == 0) {
+			auto* stub = static_cast<std::uint8_t*>(t.allocate(a_expect.size() + 14));
+			std::memcpy(stub, a_expect.data(), a_expect.size());
+			absJump(stub + a_expect.size(), a_fn + a_expect.size());
+			orig = reinterpret_cast<std::uintptr_t>(stub);
+		} else {
+			logger::error("{} hook: +{:X} starts with unknown bytes ({:02X} {:02X} {:02X} {:02X}); not hooked", a_name, a_fn - base, p[0], p[1], p[2], p[3]);
+			return 0;
+		}
+		t.write_branch<5>(a_fn, reinterpret_cast<std::uintptr_t>(a_thunk));
+		logger::info("{} hook at +{:X}", a_name, a_fn - base);
+		return orig;
+	}
+
+	// Actor::ProcessHitData (AE 38586): every weapon hit an actor takes (melee, arrows, bashes, explosions) with its
+	// HitData. The core records it first (point, direction, damage, attacker): Skyrim's stagger is called from inside.
+	struct ProcessHitData
+	{
+		static std::uintptr_t thunk(RE::Actor* a_target, RE::HitData* a_hit)
+		{
+			if (core::Use c; c && a_target && a_hit) {
+				c->onHitData(a_target, a_hit);
+			}
+			return func(a_target, a_hit);  // whatever it returns passes through
+		}
+		static inline std::uintptr_t (*func)(RE::Actor*, RE::HitData*){};
+
+		static void Install()
+		{
+			// mov rax, rsp; push rbp; push rsi
+			static constexpr std::uint8_t kStart[]{ 0x48, 0x8B, 0xC4, 0x55, 0x56 };
+			func = reinterpret_cast<decltype(func)>(
+				HookEntry(REL::Relocation<std::uintptr_t>{ REL::ID(38586) }.address(), kStart, reinterpret_cast<void*>(&thunk), "hit"));
+		}
+	};
+
+	// The actor's stagger (AE 37710; the hit's stagger, Fus, magic stagger effects, area staggers, a knock that can't
+	// ragdoll): Skyrim's runs as always (it stops what she was doing), Delirium then plays it on the body.
+	struct Stagger
+	{
+		static bool thunk(RE::Actor* a_target, float a_magnitude, RE::Actor* a_source)
+		{
+			const bool was = a_target && a_target->AsActorState()->IsStaggered();
+			const bool r = func(a_target, a_magnitude, a_source);
+			if (core::Use c; c && a_target) {
+				c->onStagger(a_target, a_magnitude, a_source, !was && a_target->AsActorState()->IsStaggered());
+			}
+			return r;
+		}
+		static inline bool (*func)(RE::Actor*, float, RE::Actor*){};
+
+		static void Install()
+		{
+			// mov rax, rsp; push rdi; sub rsp, 0C0h
+			static constexpr std::uint8_t kStart[]{ 0x48, 0x8B, 0xC4, 0x57, 0x48, 0x81, 0xEC, 0xC0, 0x00, 0x00, 0x00 };
+			func = reinterpret_cast<decltype(func)>(
+				HookEntry(REL::Relocation<std::uintptr_t>{ REL::ID(37710) }.address(), kStart, reinterpret_cast<void*>(&thunk), "stagger"));
+		}
+	};
+
+	// An NPC's death (Character::KillImpl, vtable 0x10E; the player's is PlayerCharacter's, not hooked): the core may
+	// hold it back a few seconds, so she dies on her feet in Delirium first, then calls it again itself
+	struct Kill
+	{
+		static void thunk(RE::Actor* a_this, RE::Actor* a_attacker, float a_damage, bool a_sendEvent, bool a_ragdollInstant)
+		{
+			if (core::Use c; c && a_this && c->onKill(a_this, a_attacker, a_damage, a_sendEvent, a_ragdollInstant)) {
+				return;
+			}
+			func(a_this, a_attacker, a_damage, a_sendEvent, a_ragdollInstant);
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+
+		static void Install()
+		{
+			REL::Relocation<std::uintptr_t> vt{ RE::VTABLE_Character[0] };
+			func = vt.write_vfunc(0x10E, thunk);
+			logger::info("kill hook on Character's vtable (slot 10E)");
+		}
+	};
+
 	class KeySink : public RE::BSTEventSink<RE::InputEvent*>
 	{
 	public:
@@ -376,12 +478,16 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 		core::pluginDir = std::filesystem::path(p).parent_path();
 	}
 	core::Load();
-	// CommonLib allocates the trampoline once (later requests are ignored): room for every hook, 14 bytes each
-	SKSE::AllocTrampoline(14 * 8);
+	// CommonLib allocates the trampoline once (later requests are ignored): room for every hook (14 bytes each, the
+	// animation hook's extra call sites too) and the entry hooks' copied openings
+	SKSE::AllocTrampoline(512);
 	UpdateAnimationInternal::Install();  // does nothing per frame until a body is active
 	PoseToNodes::Install();
 	DriveToPose::Install();
 	GetUpCheck::Install();
+	ProcessHitData::Install();
+	Stagger::Install();
+	Kill::Install();
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	return true;
 }
