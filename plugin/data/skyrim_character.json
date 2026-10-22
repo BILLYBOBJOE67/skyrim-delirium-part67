@@ -114,16 +114,16 @@
       ],
       "limits": [
         [
-          -0.7853982,
-          0.34906584
+          -0.61086524,
+          0.61086524
         ],
         [
-          -0.2617994,
-          0.34906584
+          -0.29670596,
+          0.29670596
         ],
         [
-          -0.5235988,
-          0.2617994
+          -0.38397244,
+          0.38397244
         ]
       ],
       "flip": [
@@ -131,7 +131,7 @@
         false,
         false
       ],
-      "muscle_stiffness": 1.0,
+      "muscle_stiffness": 4.0,
       "damping": 18.0,
       "strength": 81.0,
       "max_torque": [
@@ -252,16 +252,16 @@
       ],
       "limits": [
         [
-          -0.7853982,
-          0.34906584
+          -0.61086524,
+          0.61086524
         ],
         [
-          -0.34906584,
-          0.2617994
+          -0.29670596,
+          0.29670596
         ],
         [
-          -0.2617994,
-          0.5235988
+          -0.38397244,
+          0.38397244
         ]
       ],
       "flip": [
@@ -269,7 +269,7 @@
         true,
         true
       ],
-      "muscle_stiffness": 1.0,
+      "muscle_stiffness": 4.0,
       "damping": 18.0,
       "strength": 81.0,
       "max_torque": [
@@ -637,7 +637,7 @@
         false,
         false
       ],
-      "muscle_stiffness": 1.0,
+      "muscle_stiffness": 0.7,
       "damping": 20.0,
       "strength": 100.0,
       "max_torque": [
@@ -683,7 +683,7 @@
         false,
         false
       ],
-      "muscle_stiffness": 1.0,
+      "muscle_stiffness": 0.7,
       "damping": 20.0,
       "strength": 100.0,
       "max_torque": [
@@ -729,7 +729,7 @@
         false,
         false
       ],
-      "muscle_stiffness": 1.0,
+      "muscle_stiffness": 2.0,
       "damping": 18.0,
       "strength": 81.0,
       "max_torque": [
@@ -821,7 +821,7 @@
         true,
         true
       ],
-      "muscle_stiffness": 1.0,
+      "muscle_stiffness": 0.7,
       "damping": 20.0,
       "strength": 100.0,
       "max_torque": [
@@ -867,7 +867,7 @@
         false,
         false
       ],
-      "muscle_stiffness": 1.0,
+      "muscle_stiffness": 0.7,
       "damping": 20.0,
       "strength": 100.0,
       "max_torque": [
@@ -913,7 +913,7 @@
         true,
         true
       ],
-      "muscle_stiffness": 1.0,
+      "muscle_stiffness": 2.0,
       "damping": 18.0,
       "strength": 81.0,
       "max_torque": [
@@ -2623,8 +2623,8 @@
       "name": "Neck",
       "parent": 10,
       "mass": 0.96,
-      "radius": 0.055,
-      "half": 0.01,
+      "radius": 0.06,
+      "half": 0.052812,
       "offset": {
         "pos": [
           0.0,

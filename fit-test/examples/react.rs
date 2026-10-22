@@ -94,8 +94,8 @@ unsafe fn run(build: *const NmBuild, w: *mut NmWorld, k: Case) {
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     unsafe {
-        assert!(nm_init(c(&a[1]).as_ptr()) >= 0);
-        let build = nm_build_load(c(&a[2]).as_ptr());
+        assert!(if a[1].ends_with(".json") { delirium_physics::character::nm_init_character_file(c(&a[1]).as_ptr()) } else { nm_init(c(&a[1]).as_ptr()) } >= 0);
+        let build = if a[2].ends_with(".json") { delirium_physics::character::nm_build_from_character(c(&std::fs::read_to_string(&a[2]).unwrap()).as_ptr()) } else { nm_build_load(c(&a[2]).as_ptr()) };
         assert!(!build.is_null());
         let w = nm_world_create();
         nm_world_add_floor(w, 0.0, 0.0, 0.0, 50.0);

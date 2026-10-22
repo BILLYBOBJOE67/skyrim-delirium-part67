@@ -8,6 +8,7 @@
 //!
 //! usage: cargo run --release --example make_character -- <joints.json> <out character.json> <out rig.txt>
 //! env: ARM_OUT=deg (zero pose: upper arms out from the body, default 55), TORQUE=x (all joint strengths, default 1)
+//!      G_<JOINT>=x (gain factor) and MS_<JOINT>=x (muscle stiffness) per joint group, e.g. G_SPINE=0.9 MS_ANKLE=3
 
 use delirium::prelude::*;
 use delirium_physics::character::{BuildPart, Character, FORMAT, Frame, Joint, JointLimit, Part};
@@ -88,7 +89,7 @@ fn main() {
         8 => (0.10, 0.06, None),
         9 => (0.105, 0.065, None),
         10 => (0.10, 0.08, None),
-        11 => { let (r, h) = limb(k, 0.055); (r, h, None) }
+        11 => (0.06, len(k) * 0.5, None), // neck: caps reach into the chest and the head (no self-collision pairs)
         12 => (0.085, 0.03, None),
         13 | 17 => { let (r, h) = limb(k, 0.04); (r, h, None) }
         14 | 18 => { let (r, h) = limb(k, 0.048); (r, h, None) }
@@ -174,7 +175,9 @@ fn main() {
         match k {
             1 => vec![(right, -25.0, 120.0), (fwd, -25.0 - hip_out, 45.0 - hip_out), (al, -45.0, 40.0)],
             2 => vec![(-right, -3.0 - knee_bent, 145.0 - knee_bent)],
-            3 => vec![(right, -45.0, 20.0), (-up, -15.0, 20.0), (-fwd, -15.0, 30.0)],
+            // the ankle's ranges sit centred on its neutral: behaviours aim it from the middle of its range, and an
+            // off-centre range (as a real ankle has) tips the stance and drops the character under shots (fit-test sweep)
+            3 => vec![(right, -35.0, 35.0), (-up, -17.0, 17.0), (-fwd, -22.0, 22.0)],
             7 => vec![(-right, -15.0, 25.0), (-fwd, -10.0, 10.0), (up, -5.0, 5.0)],
             8 => vec![(-right, -12.0, 20.0), (-fwd, -12.0, 12.0), (up, -8.0, 8.0)],
             9 => vec![(-right, -10.0, 15.0), (-fwd, -12.0, 12.0), (up, -15.0, 15.0)],
@@ -260,10 +263,15 @@ fn main() {
         let k = i + 1;
         let (z, x0) = axes(k);
         let (g, max) = muscle(i);
+        let grp = JOINTS[i].trim_end_matches("_left").trim_end_matches("_right").trim_end_matches(|c: char| c.is_ascii_digit()).trim_end_matches('_').to_uppercase();
+        let env = |k: String, d: f32| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
+        // muscle stiffness: stiff ankles and wrists, looser shoulders and elbows (fit-test sweep: calmer limbs after a throw)
+        let ms = match grp.as_str() { "ANKLE" => 4.0, "WRIST" => 2.0, "SHOULDER" | "ELBOW" => 0.7, _ => 1.0 };
+        let (g, ms) = (g * env(format!("G_{grp}"), 1.0), env(format!("MS_{grp}"), ms));
         let r = RIGHT.contains(&k) && !hinge(k);
         Joint {
             name: JOINTS[i].into(), index: i as u32, three: !hinge(k), pos: zp[k].to_array(), twist_axis: z.to_array(), lean_axis: x0.to_array(),
-            limits: limits(k), flip: [false, r, r], muscle_stiffness: 1.0, damping: 2.0 * g, strength: g * g, max_torque: max.map(|m| m * torque),
+            limits: limits(k), flip: [false, r, r], muscle_stiffness: ms, damping: 2.0 * g, strength: g * g, max_torque: max.map(|m| m * torque),
         }
     }).collect();
     let parts: Vec<Part> = (0..21).map(|k| Part { name: NAMES[k].into(), frame: mrows(zrot[k], zc[k]), mass: MASS_PCT[k] * BODY_KG / 100.0 }).collect();
