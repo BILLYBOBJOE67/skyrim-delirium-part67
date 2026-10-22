@@ -359,6 +359,59 @@ namespace delirium
 		deathMaxSpeed_ = std::max(1.0f, static_cast<float>(ini.GetDoubleValue("Deaths", "fDeathMaxSpeed", 6.0)));
 		dyingReact_ = std::clamp(static_cast<float>(ini.GetDoubleValue("Deaths", "fShotTime", 1.2)), 0.0f, 5.0f);
 		dyingTime_ = std::clamp(static_cast<float>(ini.GetDoubleValue("Deaths", "fDyingTime", 3.0)), 0.0f, 10.0f);
+		{
+			// the reaction table: built in (today's reactions), each [Reactions] row replaces its own
+			static constexpr std::pair<const char*, const char*> kTable[]{
+			{ "stand", "step" },
+			{ "stand.melee", "shot, spin, headsnap" },
+			{ "stand.melee.light", "flinch" },
+			{ "stand.arrow", "shot, spin, headsnap" },
+			{ "stand.spell", "shot, spin, headsnap" },
+			{ "stand.stagger.light", "flinch" },
+			{ "stand.blast.light", "flinch" },
+			{ "stand.lethal", "shot:150, spin, headsnap, collapse" },
+			{ "fire", "burn" },
+			{ "shock", "shock" },
+			{ "frost", "" },
+			{ "fly", "foetal:50, windmill:30, rollup:20" },
+			{ "fly.far", "foetal:45, highfall:35, windmill:10, rollup:10" },
+			{ "fly.fire", "foetal:75, windmill:25, thrash" },
+			{ "downhit", "react, push:0.6" },
+			{ "downhit.melee", "react, push:0.6, time:0.8" },
+			{ "down.arrow", "writhe" },
+			{ "down.magic", "writhe" },
+			{ "down.fire", "roll, amp:2.2, period:0.4" },
+			{ "down.shock", "writhe, amp:1.3, period:0.3, shock" },
+			{ "down.frost", "foetal, shiver" }
+			};
+			rules_.clear();
+			for (const auto& [k, v] : kTable) {
+				rules_[k] = ParseRule(v);
+			}
+			heavyOomph_ = std::clamp(static_cast<float>(ini.GetDoubleValue("Reactions", "fHeavyOomph", 0.5)), 0.0f, 1.01f);
+			CSimpleIniA::TNamesDepend keys;
+			ini.GetAllKeys("Reactions", keys);
+			int own = 0;
+			for (const auto& k : keys) {
+				std::string key = k.pItem;
+				std::transform(key.begin(), key.end(), key.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				if (key.empty() || (k.pItem[0] == 'f' && std::isupper(static_cast<unsigned char>(k.pItem[1])))) {
+					continue;  // a setting (fHeavyOomph), not a row
+				}
+				rules_[key] = ParseRule(ini.GetValue("Reactions", k.pItem, ""));
+				++own;
+			}
+			static constexpr std::string_view kKnown[]{ "shot", "flinch", "step", "none", "spin", "headsnap", "collapse", "push", "burn", "shock", "chill", "catch",
+				"foetal", "windmill", "rollup", "highfall", "thrash", "tumble", "react", "time", "writhe", "roll", "still", "amp", "period", "shiver" };
+			for (const auto& [k, r] : rules_) {
+				for (const auto& [n, v] : r.layers) {
+					if (std::find(std::begin(kKnown), std::end(kKnown), n) == std::end(kKnown)) {
+						logger::warn("[Reactions] {}: unknown behaviour '{}'", k, n);
+					}
+				}
+			}
+			logger::info("reaction table: {} rows ({} from the ini)", rules_.size(), own);
+		}
 		collapseMin_ = std::clamp(static_cast<float>(ini.GetDoubleValue("Deaths", "fCollapseAfterMin", 0.8)), 0.0f, 10.0f);
 		collapseMax_ = std::max(collapseMin_, static_cast<float>(ini.GetDoubleValue("Deaths", "fCollapseAfterMax", 1.6)));
 		logger::info("muscle gain on Skyrim's ragdoll {:.2f}, joint damping {:.2f}, its joint friction x{:.2f} while driven, Delirium's masses {}", gain_, damp_,
@@ -607,6 +660,11 @@ namespace delirium
 			act->heldDeath = true;
 			return;
 		}
+		if (act->flying > 0) {
+			act->heldDeath = true;
+			logger::info("{:08X}: dying on her feet: thrown, the throw plays on, she dies once down", a_actor->GetFormID());
+			return;
+		}
 		act->heldDeath = true;
 		// no reaction from a blow (a burn, a fall, the console): the killing blow as a wounded shot, from the killer
 		float cp[3]{}, cq[4]{};
@@ -625,10 +683,13 @@ namespace delirium
 		const int   part = kUpperParts[std::uniform_int_distribution<int>(0, 5)(g_rng)];
 		float       hp[3]{}, hq[4]{};
 		dl.nm_agent_get_part_transform(act->agent, part, hp, hq);
-		if (dl.nm_agent_task_shot(act->agent, act->world, nullptr, part, hp, d, kHeldHealth) < 0) {
+		std::string key;
+		const Rule* row = FindRule({ "stand.lethal" }, key);
+		const bool  collapse = !row || row->Has("collapse");
+		if (dl.nm_agent_task_shot(act->agent, act->world, nullptr, part, hp, d, row ? row->Value("shot", kHeldHealth) : kHeldHealth) < 0) {
 			logger::error("  shot task: {}", LastError());
 		} else {
-			act->collapseAt = act->age + Rand(collapseMin_, collapseMax_);
+			act->collapseAt = collapse ? act->age + Rand(collapseMin_, collapseMax_) : -1.0f;
 			logger::info("{:08X}: dying on her feet: shot task on part {}, collapsing in {:.1f} s", a_actor->GetFormID(), part, act->collapseAt - act->age);
 		}
 	}
@@ -650,7 +711,11 @@ namespace delirium
 				}
 			}
 			const bool  down = act && act->knockQueued;
-			const char* why = t >= dyingTime_ ? "her time is up" : down && t >= 1.5f ? "she is down" : !act && t >= 0.5f ? "Delirium let her go" : nullptr;
+			const bool  reacting = down && (act->writheAt >= 0.0f || act->writheUntil > act->age);  // writhing, convulsing, burning on the ground
+			const char* why = t >= dyingTime_ ? "her time is up" :
+			                  down && !reacting && t >= 1.5f ? "she is down" :
+			                  !act && t >= 0.5f      ? "Delirium let her go" :
+			                                           nullptr;
 			if (!why) {
 				return;
 			}
@@ -1199,6 +1264,7 @@ namespace delirium
 		b.dir = { a_vel.x / speed, a_vel.y / speed, a_vel.z / speed };
 		b.shot = true;
 		b.element = a_kind;
+		b.type = a_kind == kArrow ? kBlowArrow : kBlowSpell;
 		LastHit     last;
 		const bool  hit = a_target && RecentHit(a_target->GetFormID(), 0.5f, last);
 		const float scale = hit ? DamageScale(a_target, last.damage) : 1.0f;
@@ -1209,6 +1275,134 @@ namespace delirium
 		}
 		b.note = fmt::format("{:.0f} damage x{:.2f}, oomph {:.2f}", hit ? last.damage : 0.0f, scale, b.oomph);
 		React(a_target, b);
+	}
+
+	bool Engine::Rule::Has(std::string_view a_name) const
+	{
+		return base == a_name || std::any_of(layers.begin(), layers.end(), [&](const auto& l) { return l.first == a_name; });
+	}
+
+	float Engine::Rule::Value(std::string_view a_name, float a_or) const
+	{
+		for (const auto& [n, v] : layers) {
+			if (n == a_name && !std::isnan(v)) {
+				return v;
+			}
+		}
+		return a_or;
+	}
+
+	Engine::Rule Engine::ParseRule(std::string_view a_text)
+	{
+		// "shot:150, spin, headsnap": the first is the base behaviour, the rest its layers; name:value gives a number
+		Rule r;
+		r.text = a_text;
+		std::size_t i = 0;
+		while (i <= a_text.size()) {
+			const std::size_t e = std::min(a_text.find(',', i), a_text.size());
+			std::string       item(a_text.substr(i, e - i));
+			i = e + 1;
+			std::erase_if(item, [](unsigned char c) { return std::isspace(c); });
+			std::transform(item.begin(), item.end(), item.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			if (item.empty()) {
+				continue;
+			}
+			float             v = std::numeric_limits<float>::quiet_NaN();
+			const std::size_t c = item.find(':');
+			if (c != std::string::npos) {
+				try {
+					v = std::stof(item.substr(c + 1));
+				} catch (...) {
+				}
+				item.resize(c);
+			}
+			if (r.layers.empty() && r.base.empty()) {
+				r.base = item;
+			}
+			r.layers.emplace_back(item, v);
+		}
+		return r;
+	}
+
+	const Engine::Rule& Engine::PickRule(const char* a_phase, const Blow& a_blow, bool a_lethal, std::string& a_key) const
+	{
+		// the most exact row there is: phase.type.strength, phase.strength, phase.type, phase
+		static constexpr const char* kTypes[]{ "other", "melee", "arrow", "spell", "blast", "stagger" };
+		const char*       type = kTypes[std::clamp(a_blow.type, 0, 5)];
+		const char*       band = a_lethal ? "lethal" : a_blow.push < flinchBelow_ ? "light" : a_blow.oomph >= heavyOomph_ ? "heavy" : "";
+		const std::string p(a_phase);
+		std::vector<std::string> tries;
+		if (*band) {
+			tries.push_back(p + "." + type + "." + band);
+			tries.push_back(p + "." + band);
+		}
+		tries.push_back(p + "." + type);
+		tries.push_back(p);
+		for (const auto& k : tries) {
+			if (auto it = rules_.find(k); it != rules_.end()) {
+				a_key = k;
+				return it->second;
+			}
+		}
+		static const Rule kStep = ParseRule("step");
+		a_key = "(none: step)";
+		return kStep;
+	}
+
+	const Engine::Rule* Engine::FindRule(std::initializer_list<std::string> a_keys, std::string& a_key) const
+	{
+		for (const auto& k : a_keys) {
+			if (auto it = rules_.find(k); it != rules_.end()) {
+				a_key = k;
+				return &it->second;
+			}
+		}
+		return nullptr;
+	}
+
+	const char* Engine::ElementName(int a_element)
+	{
+		static constexpr const char* kNames[]{ "arrow", "frost", "fire", "shock", "magic" };
+		return a_element >= 0 && a_element < 5 ? kNames[a_element] : "";
+	}
+
+	int Engine::Choose(const Rule& a_rule, std::initializer_list<std::string_view> a_names)
+	{
+		float total = 0.0f;
+		for (const auto& [n, v] : a_rule.layers) {
+			if (std::find(a_names.begin(), a_names.end(), n) != a_names.end()) {
+				total += std::isnan(v) ? 1.0f : std::max(v, 0.0f);
+			}
+		}
+		if (total <= 0.0f) {
+			return -1;
+		}
+		float pick = Rand(0.0f, 1.0f) * total;
+		int   last = -1;
+		for (const auto& [n, v] : a_rule.layers) {
+			const auto it = std::find(a_names.begin(), a_names.end(), n);
+			if (it == a_names.end()) {
+				continue;
+			}
+			const float w = std::isnan(v) ? 1.0f : std::max(v, 0.0f);
+			last = static_cast<int>(it - a_names.begin());
+			if (w > 0.0f && pick < w) {
+				return last;
+			}
+			pick -= w;
+		}
+		return last;
+	}
+
+	Engine::Rule Engine::ElementRule(int a_element) const
+	{
+		const char* n = a_element == kFire ? "fire" : a_element == kShock ? "shock" : a_element == kFrost ? "frost" : nullptr;
+		if (n) {
+			if (auto it = rules_.find(n); it != rules_.end()) {
+				return it->second;
+			}
+		}
+		return {};
 	}
 
 	void Engine::React(RE::Actor* a_target, const Blow& a_blow)
@@ -1267,6 +1461,8 @@ namespace delirium
 
 	void Engine::ReactOn(Active& a, RE::Actor* a_actor, const Blow& b)
 	{
+		a.lastType = b.type;
+		a.lastElement = b.element;
 		// where it landed if that was on her, else the chest
 		float at[3]{}, q[4]{};
 		int   part = kChest;
@@ -1286,6 +1482,16 @@ namespace delirium
 		}
 		if (b.fly.x != 0.0f || b.fly.y != 0.0f || b.fly.z != 0.0f) {
 			Fly(a, a_actor, b);
+			return;
+		}
+		if (a.flying > 0 && !a.knockQueued) {
+			// in the air: the throw's behaviours play on, the blow only adds its push (a killing blow too: she dies once down)
+			if (held_.contains(a_actor->GetFormID())) {
+				a.heldDeath = true;
+			}
+			const float added = AddPush(a, at, b.dir, std::min(b.push, b.melee ? meleeMaxPush_ : hitMaxPush_));
+			logger::info("{:08X}: {} in the air: push {:.0f} N s added, the throw plays on{} ({})", a_actor->GetFormID(), b.what, added,
+				a.heldDeath ? ", dying" : "", b.note);
 			return;
 		}
 		if (b.join && a.age - a.lastPushAt < 0.3f) {
@@ -1310,19 +1516,29 @@ namespace delirium
 				a.collapseAt = a.age + Rand(collapseMin_, collapseMax_);
 			}
 		}
-		const bool asShot = held || b.shot || (b.melee && b.push >= flinchBelow_);
+		// the reaction table: this blow's row (phase, type, strength), the element's layers on top
+		std::string key;
+		Rule        rule = PickRule("stand", b, held, key);
+		{
+			const Rule el = ElementRule(b.element);
+			rule.layers.insert(rule.layers.end(), el.layers.begin(), el.layers.end());
+		}
+		if (held && !rule.Has("collapse")) {
+			a.collapseAt = -1.0f;  // the row says she doesn't go down by herself: her time runs out on her feet
+		}
+		const bool asShot = rule.base == "shot";
 		if (asShot) {
 			auto*       av = a_actor->AsActorValueOwner();
 			const float full = av->GetPermanentActorValue(RE::ActorValue::kHealth);
 			const float share = full > 0.0f ? std::clamp(av->GetActorValue(RE::ActorValue::kHealth) / full, 0.0f, 1.0f) : 1.0f;
-			health = held ? kHeldHealth : share >= wounded_ ? 100.0f + 100.0f * share : 50.0f + 49.0f * share / std::max(wounded_, 1e-3f);
+			health = rule.Value("shot", share >= wounded_ ? 100.0f + 100.0f * share : 50.0f + 49.0f * share / std::max(wounded_, 1e-3f));
 			const float d[3]{ b.dir.x, b.dir.y, b.dir.z };
 			r = dl.nm_agent_task_shot(a.agent, a.world, b.melee ? "MELEE" : nullptr, part, at, d, health);
 			how = b.melee ? "wounded (shot task, melee)" : "shot";
 			if (held) {
 				how += ", dying on her feet";
 			}
-			if (r >= 0 && b.oomph > 0.0f) {
+			if (r >= 0 && b.oomph > 0.0f && rule.Has("spin")) {
 				// a harder hit jolts harder: Delirium's shot twists the spine on impact (its shock spin, on any part now), read
 				// on the shot's first tick. No lean on top: any leanInDirection with the shot takes her off her feet (fit-test
 				// react: lean 0.15 falls at 2.5 s, 1.2 at once; without it she stays up to a 200 N s push)
@@ -1341,23 +1557,29 @@ namespace delirium
 			a.shotPelvis = { pp[0], pp[1], pp[2] };
 			a.shotDir = fl > 1e-3f ? V3{ b.dir.x / fl, b.dir.y / fl, 0.0f } : V3{};
 			a.haveShot = fl > 1e-3f;
-		} else if (sees && b.push < flinchBelow_) {
+		} else if (rule.base == "flinch" && sees) {
 			r = dl.nm_agent_task_flinch(a.agent, a.world, nullptr, look);
 			how = "flinch";
+		} else if (rule.base == "none") {
+			r = 0;
+			how = "no behaviour, the push only";
 		} else {
 			r = dl.nm_agent_task_balance(a.agent, a.world, nullptr, sees ? look : nullptr);
 			how = "step";
 		}
 		// the push at most: past it one shove knocks her over limp before anything plays; the behaviours carry the rest
-		const float want = b.melee ? std::min(b.push, meleeMaxPush_) : b.shot ? std::min(b.push, hitMaxPush_) : b.push;
+		const float want = rule.Value("push", 1.0f) *
+			(b.melee ? std::min(b.push, meleeMaxPush_) : b.shot ? std::min(b.push, hitMaxPush_) : b.push);
 		if (r >= 0 && asShot && b.oomph > 0.0f) {
 			// a heavy hit: the head snaps with it, she stumbles back along it on the shot task's own steps
-			float hp[3]{}, hq[4]{};
-			dl.nm_agent_get_part_transform(a.agent, kHead, hp, hq);
-			const float w = headWhip_ * want * (0.5f + b.oomph);
-			const float imp[3]{ w * b.dir.x, w * b.dir.y, w * b.dir.z };
-			dl.nm_agent_apply_push(a.agent, hp, imp);
-			how += fmt::format(", head snaps {:.0f} N s", w);
+			if (rule.Has("headsnap")) {
+				float hp[3]{}, hq[4]{};
+				dl.nm_agent_get_part_transform(a.agent, kHead, hp, hq);
+				const float w = headWhip_ * want * (0.5f + b.oomph) * rule.Value("headsnap", 1.0f);
+				const float imp[3]{ w * b.dir.x, w * b.dir.y, w * b.dir.z };
+				dl.nm_agent_apply_push(a.agent, hp, imp);
+				how += fmt::format(", head snaps {:.0f} N s", w);
+			}
 			// if she goes down anyway: on the ground for a while (a blow, half as long)
 			a.writheFor = std::max(a.writheFor, (b.melee ? 0.5f : 1.0f) * (writheTime_ + writheAdd_ * b.oomph));
 			a.writheOomph = std::max(a.writheOomph, b.oomph);
@@ -1382,12 +1604,16 @@ namespace delirium
 			}
 		}
 		// the element on top, for its own time; one still running goes on over the blow, to its own end
-		if (b.element == kFire && burnTime_ > 0.0f) {
-			a.burnUntil = std::max(a.burnUntil, a.age + burnTime_);
+		if (const float t = rule.Value("burn", burnTime_); rule.Has("burn") && t > 0.0f) {
+			a.burnUntil = std::max(a.burnUntil, a.age + t);
 		}
-		if (b.element == kShock && shockTime_ > 0.0f) {
-			a.shockUntil = std::max(a.shockUntil, a.age + shockTime_);
+		if (const float t = rule.Value("shock", shockTime_); rule.Has("shock") && t > 0.0f) {
+			a.shockUntil = std::max(a.shockUntil, a.age + t);
 		}
+		if (const float t = rule.Value("chill", channelLinger_); rule.Has("chill") && t > 0.0f) {
+			a.chillUntil = std::max(a.chillUntil, a.age + t);
+		}
+		how = fmt::format("[{}: {}] ", key, rule.text) + how;
 		Overlays(a, V3{ b.dir.x, b.dir.y, 0.0f });
 		Reacting(a);
 		logger::info("{:08X}: {} in the {}{}: {}{}, push {:.0f} N s (wanted {:.0f}; {}) along {:.2f} {:.2f} {:.2f}{}{}", a_actor->GetFormID(), b.what,
@@ -1399,11 +1625,20 @@ namespace delirium
 
 	void Engine::DownHit(Active& a, RE::Actor* a_actor, const Blow& b)
 	{
+		if (!a.death) {
+			a.lastType = b.type;
+			a.lastElement = b.element;
+		}
 		// the blow moves the part it landed on: Skyrim's body once it is in its ragdoll (Delirium only follows it then),
 		// else Delirium's own. A blast (thrown) moves all of her
-		constexpr float kDownPush = 0.6f;  // a body on the ground takes less than one on its feet: no stance to knock out
+		// a body on the ground takes less than one on its feet: no stance to knock out ([Reactions] downhit push)
+		static constexpr const char* kTypes[]{ "other", "melee", "arrow", "spell", "blast", "stagger" };
+		std::string     key = "(none)";
+		static const Rule kDefault = ParseRule("react, push:0.6");
+		const Rule*     found = FindRule({ std::string("downhit.") + kTypes[std::clamp(b.type, 0, 5)], "downhit" }, key);
+		const Rule&     rule = found ? *found : kDefault;
 		const float     cap = b.melee ? meleeMaxPush_ : hitMaxPush_;
-		const float     push = std::min(b.push, cap) * kDownPush;
+		const float     push = std::min(b.push, cap) * rule.Value("push", 1.0f);
 		const bool      thrown = b.fly.x != 0.0f || b.fly.y != 0.0f || b.fly.z != 0.0f;
 		float           at[3]{}, q[4]{};
 		int             part = kChest;
@@ -1436,8 +1671,9 @@ namespace delirium
 		std::string how = thrown ? "the blast moves her" : fmt::format("{:.0f} N s on the {}", push, rig_[static_cast<std::size_t>(part)].name);
 		// alive: she squirms from it on the ground (or burns, convulses, curls up shivering), for longer the harder it was.
 		// One already going goes on longer; another element starts its own
-		if (!a.death) {
-			float dur = (b.melee ? 0.8f : 1.0f) * (writheTime_ + writheAdd_ * b.oomph);
+		how = fmt::format("[{}: {}] ", key, rule.text) + how;
+		if (!a.death && rule.Has("react")) {
+			float dur = rule.Value("time", 1.0f) * (writheTime_ + writheAdd_ * b.oomph);
 			if (b.element == kFire) {
 				dur = std::max(dur, burnTime_);
 			}
@@ -1464,6 +1700,8 @@ namespace delirium
 
 	void Engine::Fly(Active& a, RE::Actor* a_actor, const Blow& b)
 	{
+		a.lastType = b.type;
+		a.lastElement = b.element;
 		// thrown, alive the whole way, Delirium's own behaviours (their own gains) stacked by phase:
 		// in the air: far throws Delirium's highFall (arms windmill, legs pedal, the body turns into the fall, its own
 		// catch); shorter ones arms windmilling and legs pedalling, or tucked in a roll. A push at the head tumbles her.
@@ -1473,10 +1711,36 @@ namespace delirium
 		dl.nm_msg_send(a.agent, a.world);
 		a.reelUntil = -1.0f;
 		const float along = std::sqrt(b.fly.x * b.fly.x + b.fly.y * b.fly.y);
-		const float pick = Rand(0.0f, 1.0f);
-		a.flyMode = along >= highFallAt_ ? (pick < 0.45f ? 3 : pick < 0.8f ? 2 : pick < 0.9f ? 0 : 1) : (pick < 0.5f ? 3 : pick < 0.8f ? 0 : 1);
-		if (b.element == kFire) {
-			a.flyMode = pick < 0.75f ? 3 : 0;
+		// the reaction table: fly.element.far, fly.element, fly.far, fly; the element's layers on top
+		std::string       key = "(none)";
+		const std::string el = ElementName(b.element);
+		const bool        isFar = along >= highFallAt_;
+		std::vector<std::string> keys;
+		if (!el.empty()) {
+			if (isFar) {
+				keys.push_back("fly." + el + ".far");
+			}
+			keys.push_back("fly." + el);
+		}
+		if (isFar) {
+			keys.push_back("fly.far");
+		}
+		keys.push_back("fly");
+		Rule rule;
+		for (const auto& k : keys) {
+			if (auto it = rules_.find(k); it != rules_.end()) {
+				rule = it->second;
+				key = k;
+				break;
+			}
+		}
+		{
+			const Rule e = ElementRule(b.element);
+			rule.layers.insert(rule.layers.end(), e.layers.begin(), e.layers.end());
+		}
+		a.flyMode = Choose(rule, { "windmill", "rollup", "highfall", "foetal" });
+		if (a.flyMode < 0) {
+			a.flyMode = 3;
 		}
 		if (a.flyMode == 2) {
 			dl.nm_msg_begin(a.agent, "highFall");
@@ -1513,7 +1777,7 @@ namespace delirium
 		std::string layer;
 		if (a.flyMode == 0) {
 			// the spine writhes over the throw (its mask only): burning, it thrashes; else it twists and arches
-			const bool fire = b.element == kFire;
+			const bool fire = rule.Has("thrash");
 			dl.nm_msg_begin(a.agent, "bodyWrithe");
 			dl.nm_msg_set_bool(a.agent, "start", 1);
 			dl.nm_msg_set_string(a.agent, "mask", "us");
@@ -1522,7 +1786,7 @@ namespace delirium
 			dl.nm_msg_send(a.agent, a.world);
 			layer = fire ? ", thrashing on fire" : ", spine writhing";
 		}
-		if (b.element == kShock) {
+		if (rule.Has("shock")) {
 			dl.nm_msg_begin(a.agent, "electrocute");
 			dl.nm_msg_set_bool(a.agent, "start", 1);
 			dl.nm_msg_set_float(a.agent, "stunMag", 0.4f);
@@ -1538,7 +1802,7 @@ namespace delirium
 		// the head goes first, the legs swing under: a tumble (a little sideways, random)
 		float hp[3]{}, hq[4]{};
 		dl.nm_agent_get_part_transform(a.agent, kHead, hp, hq);
-		const float t = tumble_ * along * Rand(0.8f, 1.2f);
+		const float t = tumble_ * rule.Value("tumble", 1.0f) * along * Rand(0.8f, 1.2f);
 		const float side = Rand(-0.35f, 0.35f);
 		const float fx = along > 1e-3f ? b.fly.x / along : 0.0f, fy = along > 1e-3f ? b.fly.y / along : 0.0f;
 		const float imp[3]{ t * (fx - side * fy), t * (fy + side * fx), 0.0f };
@@ -1555,8 +1819,8 @@ namespace delirium
 		a.lastPush = 1e6f;
 		Reacting(a);
 		static constexpr const char* kModes[]{ "arms windmilling, legs pedalling", "rolled up, legs pedalling", "high fall", "curled up" };
-		logger::info("{:08X}: {}: thrown {:.1f} m/s along, {:.1f} up, {}{}, tumble {:.0f} N s; writhes {:.1f} s once down ({})", a_actor->GetFormID(), b.what,
-			along, b.fly.z, kModes[a.flyMode], layer, t, a.writheFor, b.note);
+		logger::info("{:08X}: {}: [{}: {}] thrown {:.1f} m/s along, {:.1f} up, {}{}, tumble {:.0f} N s; writhes {:.1f} s once down ({})", a_actor->GetFormID(),
+			b.what, key, rule.text, along, b.fly.z, kModes[a.flyMode], layer, t, a.writheFor, b.note);
 	}
 
 	void Engine::Channel(Active& a, RE::Actor* a_actor, const RE::NiPoint3& a_vel, int a_kind)
@@ -1693,6 +1957,7 @@ namespace delirium
 			b.push = h.strike;
 			b.canStart = false;
 			b.melee = true;
+			b.type = kBlowMelee;
 			b.oomph = meleePush_ > 0.0f ? std::clamp((b.push / meleePush_ - meleeOomphFrom_) / (meleeOomphTo_ - meleeOomphFrom_), 0.0f, 1.0f) : 0.0f;
 			b.note = fmt::format("{:.0f} damage, {}{}{}", a_hit.totalDamage, a_hit.weapon ? a_hit.weapon->GetName() : "no weapon",
 				a_hit.flags.any(RE::HitData::Flag::kPowerAttack) ? ", power" : "", a_hit.flags.any(RE::HitData::Flag::kBash) ? ", bash" : "");
@@ -1742,6 +2007,7 @@ namespace delirium
 		const float scale = DamageScale(a_target, damage) * share;
 		Blow b;
 		b.what = "blast";
+		b.type = kBlowBlast;
 		b.by = by;
 		b.at = c;
 		b.dir = dir;
@@ -1907,6 +2173,7 @@ namespace delirium
 		d.Unitize();
 		Blow b;
 		b.what = "stagger";
+		b.type = kBlowStagger;
 		b.by = by;
 		b.dir = { d.x, d.y, 0.0f };
 		const float scale = hit ? DamageScale(a_target, last.damage) : 1.0f;
@@ -1917,6 +2184,7 @@ namespace delirium
 			b.dir = { last.strikeDir.x, last.strikeDir.y, last.strikeDir.z };
 			why = "the blow";
 			b.melee = true;
+			b.type = kBlowMelee;
 			b.oomph = meleePush_ > 0.0f ? std::clamp((last.strike / meleePush_ - meleeOomphFrom_) / (meleeOomphTo_ - meleeOomphFrom_), 0.0f, 1.0f) : 0.0f;
 		}
 		// where the blow landed if it was on her (a sword's edge, a shield bash), else the chest
@@ -2822,10 +3090,48 @@ namespace delirium
 
 	void Engine::StartDying(Active& a, const V3& a_moving, bool a_held)
 	{
+		// the reaction table: die.held(.element) after dying on her feet, else die.element, die.type, die (her last blow);
+		// by default from [Deaths]
+		static constexpr const char* kTypes[]{ "other", "melee", "arrow", "spell", "blast", "stagger" };
+		const std::string el = ElementName(a.lastElement);
+		std::vector<std::string> keys;
+		if (a_held) {
+			if (!el.empty()) {
+				keys.push_back("die.held." + el);
+			}
+			keys.push_back("die.held");
+		} else {
+			if (!el.empty()) {
+				keys.push_back("die." + el);
+			}
+			if (a.lastType >= 0) {
+				keys.push_back(std::string("die.") + kTypes[std::clamp(a.lastType, 0, 5)]);
+			}
+			keys.push_back("die");
+		}
+		std::string key = "([Deaths])";
+		Rule        rule;
+		bool        found = false;
+		for (const auto& k : keys) {
+			if (auto it = rules_.find(k); it != rules_.end()) {
+				rule = it->second;
+				key = k;
+				found = true;
+				break;
+			}
+		}
+		if (!found) {
+			rule = ParseRule(a_held ? fmt::format("writhe:{}", dyingWrithe_) :
+			                          fmt::format("shot:{}, push, catch:{}, writhe:{}", dyingHealth_, dyingCatch_, dyingWrithe_));
+		}
+		const auto chance = [&](std::string_view n) { return rule.Has(n) ? rule.Value(n, 1.0f) : 0.0f; };
+		a.dieAmp = rule.Value("amp", -1.0f);
+		a.diePeriod = rule.Value("period", -1.0f);
+		logger::info("  dying row [{}: {}]", key, rule.text);
 		if (a_held) {
 			// she already took the blow on her feet: no new shot or push, her reaction runs on into the fall, then limp
 			a.dyingAt = a.age - dyingReact_;
-			a.writhe = Rand(0.0f, 1.0f) < dyingWrithe_;
+			a.writhe = Rand(0.0f, 1.0f) < chance("writhe");
 			a.relaxAt = a.age + Rand(0.8f, 1.6f);
 			logger::info("  dying plan (after dying on her feet): {}limp after {:.1f} s", a.writhe ? "writhe, then " : "", a.relaxAt - a.age);
 			return;
@@ -2871,12 +3177,13 @@ namespace delirium
 			}
 		}
 		a.dyingAt = a.age;
-		if (deathPush_ > 0.0f && (dir.x != 0.0f || dir.y != 0.0f)) {
+		const float push = deathPush_ * (rule.Has("push") ? rule.Value("push", 1.0f) : 0.0f);
+		if (push > 0.0f && (dir.x != 0.0f || dir.y != 0.0f)) {
 			float       comp[3]{}, comv[3]{};
 			dl.nm_agent_get_com(a.agent, comp, comv);
 			const float along = comv[0] * dir.x + comv[1] * dir.y;
 			const V3    perp{ comv[0] - dir.x * along, comv[1] - dir.y * along, 0.0f };
-			const float sp = std::max(deathPush_ * Rand(0.8f, 1.2f), along);  // running away from him: she keeps it
+			const float sp = std::max(push * Rand(0.8f, 1.2f), along);  // running away from him: she keeps it
 			const V3    shift{ dir.x * sp + perp.x * 0.3f - comv[0], dir.y * sp + perp.y * 0.3f - comv[1], 0.0f };
 			if (a.calibrated || a.takeover) {
 				a.kicks.push_back({ -1, shift, {} });
@@ -2891,20 +3198,23 @@ namespace delirium
 		const float d[3]{ dir.x, dir.y, dir.z };
 		// badly wounded, not dead on the spot: at no health the shot relaxes every muscle in 0.5 s (the flop). Wounded, she
 		// reaches for the wound and her muscles fade over the fall
-		if (dl.nm_agent_task_shot(a.agent, a.world, nullptr, part, hp, d, dyingHealth_) < 0) {
-			logger::error("  shot task: {}", LastError());
-		} else {
-			logger::info("  dying: shot task at health {:.0f} on part {}, hit from {}", dyingHealth_, part, from);
+		if (rule.base == "shot") {
+			const float health = rule.Value("shot", dyingHealth_);
+			if (dl.nm_agent_task_shot(a.agent, a.world, nullptr, part, hp, d, health) < 0) {
+				logger::error("  shot task: {}", LastError());
+			} else {
+				logger::info("  dying: shot task at health {:.0f} on part {}, hit from {}", health, part, from);
+			}
 		}
 		// now and then the arms go out to break the fall (the shot only catches it at full health)
-		const bool catches = Rand(0.0f, 1.0f) < dyingCatch_;
+		const bool catches = Rand(0.0f, 1.0f) < chance("catch");
 		if (catches) {
 			dl.nm_msg_begin(a.agent, "catchFall");
 			dl.nm_msg_set_bool(a.agent, "start", 1);
 			dl.nm_msg_send(a.agent, a.world);
 		}
 		// then: a weak writhe on the ground now and then, and limp after it
-		a.writhe = Rand(0.0f, 1.0f) < dyingWrithe_;
+		a.writhe = Rand(0.0f, 1.0f) < chance("writhe");
 		a.relaxAt = a.age + Rand(limpMin_, limpMax_);
 		logger::info("  dying plan: {}{}limp after {:.1f} s", catches ? "breaking the fall, " : "", a.writhe ? "writhe, then " : "", a.relaxAt - a.age);
 	}
@@ -3098,7 +3408,14 @@ namespace delirium
 					a.writheFor = std::max(a.writheFor, burnTime_ + 0.5f * o);
 				}
 				a.writheUntil = a.age + a.writheFor;
-				const bool  foetal = el == kFrost || (el < 0 && Rand(0.0f, 1.0f) < foetalChance_);
+				// the reaction table: down.element, down (by default from [Down] fFoetalChance)
+				std::string key = "(fFoetalChance)";
+				const Rule* found = FindRule({ std::string("down.") + ElementName(el), "down" }, key);
+				const Rule  rule = found ? *found :
+				                           ParseRule(fmt::format("foetal:{}, writhe:{}, roll:{}", foetalChance_, (1.0f - foetalChance_) * 0.6f,
+											   (1.0f - foetalChance_) * 0.4f));
+				const int   mode = Choose(rule, { "writhe", "roll", "foetal", "still" });  // -1: writhe
+				const bool  foetal = mode == 2;
 				dl.nm_msg_begin(a.agent, "stopAllBehaviours");
 				dl.nm_msg_send(a.agent, a.world);
 				if (a.chillUntil >= 0.0f) {
@@ -3106,19 +3423,18 @@ namespace delirium
 					dl.nm_msg_send(a.agent, a.world);
 				}
 				a.burnUntil = a.shockUntil = a.chillUntil = -1.0f;
-				if (foetal) {
+				if (mode == 3) {
+					dl.nm_msg_begin(a.agent, "bodyRelax");
+					dl.nm_msg_set_bool(a.agent, "start", 1);
+				} else if (foetal) {
 					dl.nm_msg_begin(a.agent, "bodyFoetal");
 					dl.nm_msg_set_bool(a.agent, "start", 1);
 					dl.nm_msg_set_float(a.agent, "asymmetry", Rand(0.0f, 0.6f));
 					dl.nm_msg_set_float(a.agent, "backTwist", Rand(-0.5f, 0.5f));
 					dl.nm_msg_set_int(a.agent, "randomSeed", static_cast<int>(Rand(1.0f, 999.0f)));
 				} else {
-					float k = 0.8f + 0.6f * o, p = 1.1f - 0.4f * o;  // amplitude, period: harder, bigger and faster
-					if (el == kFire) {
-						k = 2.2f, p = 0.4f;
-					} else if (el == kShock) {
-						k = 1.3f, p = 0.3f;  // big and fast: convulsing (the current on top jolts it)
-					}
+					// amplitude, period: harder, bigger and faster (the row's amp / period fix them: fire 2.2 / 0.4, shock 1.3 / 0.3)
+					const float k = rule.Value("amp", 0.8f + 0.6f * o), p = rule.Value("period", 1.1f - 0.4f * o);
 					dl.nm_msg_begin(a.agent, "bodyWrithe");
 					dl.nm_msg_set_bool(a.agent, "start", 1);
 					dl.nm_msg_set_string(a.agent, "mask", "fb");
@@ -3128,24 +3444,25 @@ namespace delirium
 					dl.nm_msg_set_float(a.agent, "armPeriod", p * Rand(0.85f, 1.15f));
 					dl.nm_msg_set_float(a.agent, "legPeriod", p * Rand(0.85f, 1.15f));
 					dl.nm_msg_set_float(a.agent, "backPeriod", p * Rand(0.85f, 1.15f));
-					dl.nm_msg_set_bool(a.agent, "rollOverFlag", el == kFire || (el < 0 && Rand(0.0f, 1.0f) < 0.4f));
+					dl.nm_msg_set_bool(a.agent, "rollOverFlag", mode == 1);
 				}
 				if (dl.nm_msg_send(a.agent, a.world) < 0) {
 					logger::error("  down: {}", LastError());
 				}
 				// the current, or the cold's shiver, on top
-				if (el == kShock || el == kFrost) {
+				const bool jolt = rule.Has("shock");
+				if (jolt || rule.Has("shiver")) {
 					dl.nm_msg_begin(a.agent, "electrocute");
 					dl.nm_msg_set_bool(a.agent, "start", 1);
-					dl.nm_msg_set_float(a.agent, "stunMag", el == kShock ? Rand(0.4f, 0.55f) : 0.12f);
-					dl.nm_msg_set_float(a.agent, "stunInterval", el == kShock ? 0.07f : 0.05f);
-					dl.nm_msg_set_float(a.agent, "largeMult", el == kShock ? 3.0f : 1.5f);
+					dl.nm_msg_set_float(a.agent, "stunMag", jolt ? Rand(0.4f, 0.55f) : 0.12f);
+					dl.nm_msg_set_float(a.agent, "stunInterval", jolt ? 0.07f : 0.05f);
+					dl.nm_msg_set_float(a.agent, "largeMult", jolt ? 3.0f : 1.5f);
 					dl.nm_msg_set_float(a.agent, "directionRandomness", 0.5f);
 					dl.nm_msg_send(a.agent, a.world);
 				}
-				static constexpr const char* kHow[]{ "", "curled up, shivering", "rolling, burning", "convulsing", "" };
-				logger::info("{:08X}: down: {} for {:.1f} s", a_actor->GetFormID(),
-					el >= 0 && el < 5 && *kHow[el] ? kHow[el] : foetal ? "curled up" : "writhing", a.writheFor);
+				static constexpr const char* kHow[]{ "writhing", "rolling", "curled up", "lying still" };
+				logger::info("{:08X}: down: [{}: {}] {}{} for {:.1f} s", a_actor->GetFormID(), key, rule.text, kHow[mode < 0 ? 0 : mode],
+					jolt ? ", convulsing" : rule.Has("shiver") ? ", shivering" : "", a.writheFor);
 			}
 			if (a.writheUntil >= 0.0f && a.age >= a.writheUntil) {
 				a.writheUntil = -1.0f;
@@ -3184,7 +3501,7 @@ namespace delirium
 			}
 			if (a.heldDeath && !a.death && a.collapseAt >= 0.0f && a.age >= a.collapseAt) {
 				a.collapseAt = -1.0f;
-				if (!a.knockQueued) {
+				if (!a.knockQueued && a.flying == 0) {
 					// she stops fighting it: the strength leaves her over a second or two, she goes down (and dies there)
 					dl.nm_msg_begin(a.agent, "stayUpright");
 					dl.nm_msg_set_bool(a.agent, "start", 0);
@@ -3201,7 +3518,8 @@ namespace delirium
 					a.writhing = true;
 					dl.nm_msg_begin(a.agent, "stopAllBehaviours");
 					dl.nm_msg_send(a.agent, a.world);
-					const float stiff = Rand(9.0f, 12.0f), period = Rand(2.0f, 4.0f), amp = Rand(0.7f, 1.3f);
+					const float stiff = Rand(9.0f, 12.0f), period = a.diePeriod > 0.0f ? a.diePeriod : Rand(2.0f, 4.0f),
+								amp = a.dieAmp >= 0.0f ? a.dieAmp : Rand(0.7f, 1.3f);
 					dl.nm_msg_begin(a.agent, "bodyWrithe");
 					dl.nm_msg_set_bool(a.agent, "start", 1);
 					for (const char* n : { "armStiffness", "legStiffness", "backStiffness" }) {

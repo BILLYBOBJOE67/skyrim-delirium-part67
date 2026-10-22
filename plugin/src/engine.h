@@ -129,6 +129,8 @@ namespace delirium
 			float                              collapseAt{ -1.0f };  // age: dying on her feet, she stops fighting it and goes down
 			float                              relaxAt{};   // age: when the next dying step (writhe end / limp) comes
 			float                              dyingAt{ -1.0f };  // age: when she died (the shot plays before any writhe)
+			int                                lastType{ -1 }, lastElement{ -1 };  // her last blow's type and element ([Reactions] die rows)
+			float                              dieAmp{ -1.0f }, diePeriod{ -1.0f };  // her death writhe's size and s per cycle (-1: random)
 			float                              speedCap{ -1.0f }; // m/s: the next drive caps every Skyrim body at this (her death's spikes), once
 			float                              calibAge{};    // age when Skyrim's ragdoll was calibrated
 			bool                               following{};   // torque drive: Delirium in FOLLOW mode on Skyrim's ragdoll
@@ -232,7 +234,25 @@ namespace delirium
 			bool         join{};         // a reaction started this moment (a direct hit, then its blast): only the push adds
 			V3           fly{};          // m/s: thrown (an explosion), alive in the air; zero: on her feet
 			bool         melee{};        // a weapon blow (or the stagger it makes): its oomph is from how much harder than a plain blow
+			int          type{ 0 };      // BlowType: its row in the reaction table
 		};
+		// the reaction table ([Reactions]): a blow's phase, type and strength pick one rule, a base behaviour and its layers
+		enum BlowType : int { kBlowOther, kBlowMelee, kBlowArrow, kBlowSpell, kBlowBlast, kBlowStagger };
+		struct Rule
+		{
+			std::string                                base;    // shot, flinch, step, none
+			std::vector<std::pair<std::string, float>> layers;  // name, value (NaN: none given)
+			std::string                                text;    // as written
+			[[nodiscard]] bool  Has(std::string_view a_name) const;
+			[[nodiscard]] float Value(std::string_view a_name, float a_or) const;  // the layer's (or base's) value, else a_or
+		};
+		static Rule ParseRule(std::string_view a_text);
+		const Rule& PickRule(const char* a_phase, const Blow& a_blow, bool a_lethal, std::string& a_key) const;
+		Rule        ElementRule(int a_element) const;  // the element's layers ([Reactions] fire / shock / frost)
+		const Rule* FindRule(std::initializer_list<std::string> a_keys, std::string& a_key) const;  // the first of these rows there is
+		static const char* ElementName(int a_element);  // arrow, frost, fire, shock, magic; "" for none
+		// one of the row's choices (its names among a_names), by their weights (name:weight, 1 if none given); -1 if none
+		static int Choose(const Rule& a_rule, std::initializer_list<std::string_view> a_names);
 		void React(RE::Actor* a_target, const Blow& a_blow);
 		void ReactOn(Active& a, RE::Actor* a_actor, const Blow& a_blow);  // under lock_
 		void DownHit(Active& a, RE::Actor* a_actor, const Blow& a_blow);  // a blow on her while she is down (or a corpse); under lock_
@@ -312,7 +332,9 @@ namespace delirium
 		float         deathMaxSpeed_{ 6.0f }; // [Deaths] fDeathMaxSpeed: m/s cap on any body as she dies
 		float         dyingReact_{ 1.2f };    // [Deaths] fShotTime: s the dying shot plays before a writhe
 		float         collapseMin_{ 0.8f }, collapseMax_{ 1.6f };  // [Deaths] fCollapseAfterMin/Max: s she fights to stay up, dying
-		float         dyingTime_{ 3.0f };     // [Deaths] fDyingTime: s she may die on her feet before the death goes through (0: off)
+		float         dyingTime_{ 3.0f };
+		std::unordered_map<std::string, Rule> rules_;  // [Reactions], over the built-in table
+		float         heavyOomph_{ 0.5f };  // [Reactions] fHeavyOomph: from this oomph a blow is heavy     // [Deaths] fDyingTime: s she may die on her feet before the death goes through (0: off)
 		std::unordered_map<RE::FormID, Held> held_;      // deaths held back (under lock_)
 		std::unordered_set<RE::FormID>       heldDied_;  // killed after a hold: her death ragdoll gets no new shot or push
 		std::atomic<RE::Actor*>              letKill_{ nullptr };  // the kill we make ourselves goes through
