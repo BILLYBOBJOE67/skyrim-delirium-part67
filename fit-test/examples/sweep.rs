@@ -388,10 +388,14 @@ fn main() {
     let a: Vec<String> = std::env::args().collect();
     let per: usize = a.get(4).and_then(|s| s.parse().ok()).unwrap_or(100);
     let mut out = std::io::BufWriter::new(std::fs::File::create(&a[3]).unwrap());
-    writeln!(out, "family,trial,stack,part,mag,angle,fell,t_fall,head_min,moved,act,act_late,ke_max,settle,finite").unwrap();
+    writeln!(out, "family,trial,stack,part,mag,angle,fell,t_fall,head_min,moved,act,act_late,ke_max,settle,finite,steps,step_t,lost_t").unwrap();
     unsafe {
         let ok = if a[1].ends_with(".json") { delirium_physics::character::nm_init_character_file(c(&a[1]).as_ptr()) } else { nm_init(c(&a[1]).as_ptr()) };
         assert!(ok >= 0);
+        // TASK_PARAMS=path: a Delirium task-params file (e.g. our own shotMaxSteps)
+        if let Ok(p) = std::env::var("TASK_PARAMS") {
+            assert!(nm_load_task_params(c(&p).as_ptr()) >= 0);
+        }
         let build = if a[2].ends_with(".json") {
             delirium_physics::character::nm_build_from_character(c(&std::fs::read_to_string(&a[2]).unwrap()).as_ptr())
         } else {
@@ -499,11 +503,24 @@ fn main() {
                     0 => {
                         part = [0, 7, 10, 12][r.pick(4)];
                         mag = r.range(30.0, 280.0);
+                        // FIX_PART / FIX_MAG: every push at this part / this strength (for traces)
+                        if let Some(x) = std::env::var("FIX_PART").ok().and_then(|s| s.parse().ok()) { part = x; }
+                        if let Some(x) = std::env::var("FIX_MAG").ok().and_then(|s| s.parse().ok()) { mag = x; }
                     if std::env::var("NOHIT").is_ok() {
                         mag = 0.0;  // control: the stance (or STANCE_TRACK) alone
                     }
+                        // PUSH_STIFF=x: the balancer's body stiffness for this hit (a bodyBalance update, no restart)
+                        if let Some(x) = std::env::var("PUSH_STIFF").ok().and_then(|s| s.parse::<f32>().ok()) {
+                            send(g, w, &("bodyBalance", vec![("bodyStiffness", F(x))]));
+                        }
+                        // PUSH_SPLIT=s: share s of the push goes to the pelvis instead of the hit part
+                        let s: f32 = std::env::var("PUSH_SPLIT").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0);
                         let p = pos(m, part);
-                        nm_agent_apply_push(m, p.as_ptr(), [dir[0] * mag, dir[1] * mag, 0.0].as_ptr());
+                        nm_agent_apply_push(m, p.as_ptr(), [dir[0] * mag * (1.0 - s), dir[1] * mag * (1.0 - s), 0.0].as_ptr());
+                        if s > 0.0 {
+                            let p0 = pos(m, 0);
+                            nm_agent_apply_push(m, p0.as_ptr(), [dir[0] * mag * s, dir[1] * mag * s, 0.0].as_ptr());
+                        }
                     }
                     1 => {
                         part = [7, 8, 10, 12, 14, 1][r.pick(6)];
@@ -511,7 +528,12 @@ fn main() {
                         let p = pos(m, part);
                         let d = [-dir[0], -dir[1], 0.0];
                         nm_agent_task_shot(g, w, std::ptr::null(), part, p.as_ptr(), d.as_ptr(), 198.0);
-                        nm_agent_apply_push(m, p.as_ptr(), [dir[0] * mag, dir[1] * mag, 0.0].as_ptr());
+                        let s: f32 = std::env::var("PUSH_SPLIT").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                        nm_agent_apply_push(m, p.as_ptr(), [dir[0] * mag * (1.0 - s), dir[1] * mag * (1.0 - s), 0.0].as_ptr());
+                        if s > 0.0 {
+                            let p0 = pos(m, 0);
+                            nm_agent_apply_push(m, p0.as_ptr(), [dir[0] * mag * s, dir[1] * mag * s, 0.0].as_ptr());
+                        }
                     }
                     2 => {
                         send(g, w, &("stopAllBehaviours", vec![]));
@@ -529,6 +551,8 @@ fn main() {
                 let (mut act, mut late, mut ke_max, mut head_min) = (0.0f32, 0.0f32, 0.0f32, f32::MAX);
                 let (mut fell, mut settle, mut finite) = (None, None, true);
                 let mut fi = 0;
+                // balancer steps taken (a new stepping foot), first step and when it stopped balancing
+                let (mut nsteps, mut was, mut step_t, mut lost_t) = (0, 0, None, None);
                 for k in 0..steps {
                     if let Some((_, f)) = frames.as_ref().filter(|_| family <= 1 || family == 4) {
                         // the latest recorded frame at this time; past the end (she was knocked down) the last one
@@ -543,6 +567,15 @@ fn main() {
                         assert_eq!(nm_agent_set_zero_pose(g, tf.as_ptr(), 21), 0);
                     }
                     sim.step(w);
+                    let st = nm_agent_balance_stepping(g);
+                    if st > 0 && st != was {
+                        nsteps += 1;
+                        step_t.get_or_insert(k as f32 * DT);
+                    }
+                    if st < 0 && lost_t.is_none() {
+                        lost_t = Some(k as f32 * DT);
+                    }
+                    was = st.max(0);
                     let s = activity(m);
                     act += s;
                     if k >= steps - 60 {
@@ -574,9 +607,10 @@ fn main() {
                 }
                 let end = pos(m, 0);
                 let moved = ((end[0] - start[0]).powi(2) + (end[1] - start[1]).powi(2)).sqrt();
-                writeln!(out, "{},{t},{stack},{part},{mag:.1},{:.0},{},{},{head_min:.3},{moved:.3},{:.1},{:.1},{ke_max:.1},{},{}",
+                writeln!(out, "{},{t},{stack},{part},{mag:.1},{:.0},{},{},{head_min:.3},{moved:.3},{:.1},{:.1},{ke_max:.1},{},{},{nsteps},{},{}",
                     names[family], angle.to_degrees(), fell.is_some() as i32, fell.map_or(String::new(), |x| format!("{x:.2}")),
-                    act / steps as f32, late / 60.0, settle.map_or(String::new(), |x| format!("{x:.2}")), finite as i32).unwrap();
+                    act / steps as f32, late / 60.0, settle.map_or(String::new(), |x| format!("{x:.2}")), finite as i32,
+                    step_t.map_or(String::new(), |x: f32| format!("{x:.2}")), lost_t.map_or(String::new(), |x: f32| format!("{x:.2}"))).unwrap();
                 sim.destroy();
             }
         }

@@ -169,7 +169,7 @@ namespace
 		static void Install()
 		{
 			constexpr std::size_t           kOffset = 0x74;
-			REL::Relocation<std::uintptr_t> job{ REL::ID(41453) };
+			REL::Relocation<std::uintptr_t> job{ REL::RelocationID(40436, 41453) };
 			const auto                      site = job.address() + kOffset;
 			const auto                      base = REL::Module::get().base();
 			const auto*                     op = reinterpret_cast<const std::uint8_t*>(site);
@@ -228,9 +228,10 @@ namespace
 		static void Install()
 		{
 			const auto base = REL::Module::get().base();
-			const auto copy = REL::Relocation<std::uintptr_t>{ REL::ID(63856) }.address();
-			const std::tuple<REL::ID, std::size_t, void (*)(const void*, void*, std::uint16_t)> sites[]{
-				{ REL::ID(63568), 0x382, &thunk }, { REL::ID(63563), 0x285, &thunkPost }
+			const auto copy = REL::Relocation<std::uintptr_t>{ REL::RelocationID(62933, 63856) }.address();
+			const std::tuple<REL::RelocationID, std::size_t, void (*)(const void*, void*, std::uint16_t)> sites[]{
+				{ REL::RelocationID(62627, 63568), REL::Relocate<std::size_t>(0x7BF, 0x382), &thunk },
+				{ REL::RelocationID(62622, 63563), REL::Relocate<std::size_t>(0x287, 0x285), &thunkPost }
 			};
 			for (const auto& [id, off, fn] : sites) {
 				const auto site = REL::Relocation<std::uintptr_t>{ id }.address() + off;
@@ -271,7 +272,7 @@ namespace
 		static void Install()
 		{
 			const auto base = REL::Module::get().base();
-			const auto site = REL::Relocation<std::uintptr_t>{ REL::ID(63562) }.address() + 0x256;
+			const auto site = REL::Relocation<std::uintptr_t>{ REL::RelocationID(62621, 63562) }.address() + REL::Relocate<std::size_t>(0x25B, 0x256);
 			if (*reinterpret_cast<const std::uint8_t*>(site) != 0xE8) {
 				logger::error("ragdoll hook: +{:X} is not a call; not hooked", site - base);
 				return;
@@ -298,8 +299,8 @@ namespace
 		static void Install()
 		{
 			const auto base = REL::Module::get().base();
-			const auto site = REL::Relocation<std::uintptr_t>{ REL::ID(39896) }.address() + 0x2B6;
-			const auto want = REL::Relocation<std::uintptr_t>{ REL::ID(37689) }.address();
+			const auto site = REL::Relocation<std::uintptr_t>{ REL::RelocationID(38859, 39896) }.address() + REL::Relocate<std::size_t>(0x3DB, 0x2B6);
+			const auto want = REL::Relocation<std::uintptr_t>{ REL::RelocationID(36681, 37689) }.address();
 			const auto* p = reinterpret_cast<const std::uint8_t*>(site);
 			if (p[0] != 0xE8 || site + 5 + *reinterpret_cast<const std::int32_t*>(p + 1) != want) {
 				logger::error("get-up hook: +{:X} is not the call to IsRagdollMovingSlowEnoughToGetUp; not hooked", site - base);
@@ -363,7 +364,7 @@ namespace
 			// mov rax, rsp; push rbp; push rsi
 			static constexpr std::uint8_t kStart[]{ 0x48, 0x8B, 0xC4, 0x55, 0x56 };
 			func = reinterpret_cast<decltype(func)>(
-				HookEntry(REL::Relocation<std::uintptr_t>{ REL::ID(38586) }.address(), kStart, reinterpret_cast<void*>(&thunk), "hit"));
+				HookEntry(REL::Relocation<std::uintptr_t>{ REL::RelocationID(37633, 38586) }.address(), kStart, reinterpret_cast<void*>(&thunk), "hit"));
 		}
 	};
 
@@ -384,10 +385,12 @@ namespace
 
 		static void Install()
 		{
-			// mov rax, rsp; push rdi; sub rsp, 0C0h
-			static constexpr std::uint8_t kStart[]{ 0x48, 0x8B, 0xC4, 0x57, 0x48, 0x81, 0xEC, 0xC0, 0x00, 0x00, 0x00 };
+			// AE: mov rax, rsp; push rdi; sub rsp, 0C0h. SE: mov rax, rsp; push rbp; push rsi; push rdi
+			static constexpr std::uint8_t kStartAE[]{ 0x48, 0x8B, 0xC4, 0x57, 0x48, 0x81, 0xEC, 0xC0, 0x00, 0x00, 0x00 };
+			static constexpr std::uint8_t kStartSE[]{ 0x48, 0x8B, 0xC4, 0x55, 0x56, 0x57 };
+			const auto kStart = REL::Module::IsAE() ? std::span<const std::uint8_t>(kStartAE) : std::span<const std::uint8_t>(kStartSE);
 			func = reinterpret_cast<decltype(func)>(
-				HookEntry(REL::Relocation<std::uintptr_t>{ REL::ID(37710) }.address(), kStart, reinterpret_cast<void*>(&thunk), "stagger"));
+				HookEntry(REL::Relocation<std::uintptr_t>{ REL::RelocationID(36700, 37710) }.address(), kStart, reinterpret_cast<void*>(&thunk), "stagger"));
 		}
 	};
 

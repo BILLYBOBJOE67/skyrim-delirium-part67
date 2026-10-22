@@ -58,7 +58,7 @@ namespace delirium
 	X(nm_msg_set_bool) X(nm_msg_set_int) X(nm_msg_set_float) X(nm_msg_set_string) X(nm_msg_set_vec3) X(nm_msg_send) X(nm_agent_is_balancing) X(nm_agent_has_fallen) X(nm_agent_set_zero_pose) \
 	X(nm_build_scale) X(nm_build_destroy) X(nm_world_add_mesh) X(nm_world_raycast) X(nm_world_triangle_count) X(nm_agent_get_com) X(nm_agent_task_shot) X(nm_agent_task_balance) X(nm_agent_task_flinch) \
 	X(nm_agent_get_part_drives) X(nm_build_part_info) X(nm_agent_get_joint_accels) X(nm_agent_get_part_ext_torques) X(nm_agent_get_joint) \
-	X(nm_init_character_file) X(nm_build_from_character)
+	X(nm_init_character_file) X(nm_build_from_character) X(nm_set_task_param)
 		struct Api
 		{
 #define DL_DECL(f) decltype(&::f) f = nullptr;
@@ -432,6 +432,13 @@ namespace delirium
 		burnTime_ = std::max(0.0f, static_cast<float>(ini.GetDoubleValue("Spells", "fBurnTime", 2.5)));
 		shockTime_ = std::max(0.0f, static_cast<float>(ini.GetDoubleValue("Spells", "fShockTime", 2.0)));
 		channelLinger_ = std::max(0.1f, static_cast<float>(ini.GetDoubleValue("Spells", "fChannelLinger", 0.6)));
+		const auto chance = [&](const char* a_key, double a_or) { return std::clamp(static_cast<float>(ini.GetDoubleValue("Spells", a_key, a_or)), 0.0f, 1.0f); };
+		spellChance_[0] = chance("fStartChance", 0.3);
+		spellChance_[1] = chance("fStartChanceHurt", 0.5);
+		channelChance_[0] = chance("fChannelChance", 0.1);
+		channelChance_[1] = chance("fChannelChanceHurt", 0.2);
+		logger::info("[Spells] start chance: missiles {:.0f}-{:.0f} %, channels {:.0f}-{:.0f} % a second (full health - near death)", spellChance_[0] * 100.0f,
+			spellChance_[1] * 100.0f, channelChance_[0] * 100.0f, channelChance_[1] * 100.0f);
 		staggers_ = ini.GetBoolValue("Stagger", "bReplace", true);
 		staggerPush_ = std::max(0.0f, static_cast<float>(ini.GetDoubleValue("Stagger", "fPush", 90.0)));
 		staggerMin_ = std::clamp(static_cast<float>(ini.GetDoubleValue("Stagger", "fMinShare", 0.4)), 0.0f, 1.0f);
@@ -471,6 +478,8 @@ namespace delirium
 		headWhip_ = std::max(0.0f, static_cast<float>(ini.GetDoubleValue("Melee", "fHeadWhip", 0.2)));
 		meleeMaxPush_ = std::max(0.0f, static_cast<float>(ini.GetDoubleValue("Melee", "fMaxPush", 160.0)));
 		hitMaxPush_ = std::max(0.0f, static_cast<float>(ini.GetDoubleValue("Hits", "fMaxPush", 150.0)));
+		pelvisShare_ = std::clamp(static_cast<float>(ini.GetDoubleValue("Hits", "fPelvisShare", 0.0)), 0.0f, 1.0f);
+		maxSteps_ = std::clamp(static_cast<int>(ini.GetLongValue("Hits", "iMaxSteps", 10)), 0, 100);
 		logger::info("explosions: push {} {:.0f} N s at the centre, {:.0f}% at the edge, up {:.2f}; thrown at {:.1f} m/s (x damage scale x nearness), up {:.2f} per, from {:.1f} to {:.1f} m/s; high fall from {:.1f} m/s, tumble {:.0f} N s per m/s",
 			blasts_, blastPush_, blastFar_ * 100.0f, blastUp_, flySpeed_, flyUp_, flyMin_, flyMax_, highFallAt_, tumble_);
 		logger::info("down: writhes {:.1f} + {:.1f} x oomph s, curls up {:.0f}%; melee oomph from x{:.1f} to x{:.1f} a plain blow, knocked down from {:.2f}, head whip {:.2f}",
@@ -523,7 +532,8 @@ namespace delirium
 			return false;
 		}
 		usingGta_ = gta;
-		build_ = dl.nm_build_from_character(text.c_str());
+		dl.nm_set_task_param("NMShot_Standing", "*", "shotMaxSteps", static_cast<float>(maxSteps_));
+		build_ =dl.nm_build_from_character(text.c_str());
 		if (!build_) {
 			logger::error("body {}: {}", buildPath_, LastError());
 			return false;
@@ -897,7 +907,7 @@ namespace delirium
 					from.z += 110.0f;
 					const RE::NiPoint3 v = at - from;
 					const float        l = v.Length();
-					OnHit(a, at, l > 1.0f ? v * (3000.0f / l) : RE::NiPoint3(0.0f, 3000.0f, 0.0f), true, kind);
+					OnHit(a, at, l > 1.0f ? v * (3000.0f / l) : RE::NiPoint3(0.0f, 3000.0f, 0.0f), true, kind, false, true);
 					arrowPush_ = keep;
 					wounded_ = keepWounded;
 				}
@@ -1322,7 +1332,15 @@ namespace delirium
 		return true;
 	}
 
-	void Engine::OnHit(RE::Actor* a_target, const RE::NiPoint3& a_at, const RE::NiPoint3& a_vel, bool a_exact, int a_kind, bool a_channel)
+	float Engine::StartChance(RE::Actor* a_target, const float (&a_chance)[2]) const
+	{
+		auto*       av = a_target->AsActorValueOwner();
+		const float full = av->GetPermanentActorValue(RE::ActorValue::kHealth);
+		const float share = full > 0.0f ? std::clamp(av->GetActorValue(RE::ActorValue::kHealth) / full, 0.0f, 1.0f) : 1.0f;
+		return a_chance[0] + (a_chance[1] - a_chance[0]) * (1.0f - share);
+	}
+
+	void Engine::OnHit(RE::Actor* a_target, const RE::NiPoint3& a_at, const RE::NiPoint3& a_vel, bool a_exact, int a_kind, bool a_channel, bool a_sure)
 	{
 		const char* what = kHitNames[static_cast<std::size_t>(std::clamp(a_kind, 0, 4))];
 		if (!(a_kind == kArrow ? arrows_ : spells_)) {
@@ -1342,7 +1360,28 @@ namespace delirium
 					return;
 				}
 			}
-			if (!a_target->IsInRagdollState() && Activate(a_target)) {
+			if (a_target->IsInRagdollState()) {
+				return;
+			}
+			// not in Delirium yet: each second of channel brings her in by chance (then every tick keeps her in, above).
+			// Ticks come ~0.15 s apart: the chance for the time since the last one (a fresh channel counts as one tick)
+			if (!a_sure && !held_.contains(a_target->GetFormID())) {
+				const auto  now = std::chrono::steady_clock::now();
+				const auto  it = channelTick_.find(a_target->GetFormID());
+				const float dt = it == channelTick_.end() ? 0.15f :
+				                                            std::clamp(std::chrono::duration<float>(now - it->second).count(), 0.0f, 0.5f);
+				if (channelTick_.size() > 64) {
+					std::erase_if(channelTick_, [&](const auto& p) { return now - p.second > std::chrono::seconds(5); });
+				}
+				channelTick_[a_target->GetFormID()] = now;
+				const float perSecond = StartChance(a_target, channelChance_);
+				if (Rand(0.0f, 1.0f) >= 1.0f - std::pow(1.0f - perSecond, dt)) {
+					return;  // Skyrim's own burn / shock / frost plays
+				}
+				logger::info("{:08X}: {} channel brings her in ({:.0f} % a second)", a_target->GetFormID(), what, perSecond * 100.0f);
+			}
+			channelTick_.erase(a_target->GetFormID());
+			if (Activate(a_target)) {
 				Channel(*active_.back(), a_target, a_vel, a_kind);
 			}
 			return;
@@ -1369,6 +1408,9 @@ namespace delirium
 			b.by = last.from.get();
 		}
 		b.note = fmt::format("{:.0f} damage x{:.2f}, oomph {:.2f}", hit ? last.damage : 0.0f, scale, b.oomph);
+		if (a_kind != kArrow && !a_sure) {
+			b.startChance = StartChance(a_target, spellChance_);  // arrows always; a spell by chance unless she is in already
+		}
 		React(a_target, b);
 	}
 
@@ -1551,6 +1593,13 @@ namespace delirium
 				}
 				return;  // Skyrim's own ragdoll, not ours (its get-up, paralysis)
 			}
+			if (a_blow.startChance < 1.0f && !held_.contains(a_target->GetFormID())) {
+				if (Rand(0.0f, 1.0f) >= a_blow.startChance) {
+					logger::info("{:08X}: {} doesn't bring her in ({:.0f} % chance): Skyrim's own hit", a_target->GetFormID(), a_blow.what, a_blow.startChance * 100.0f);
+					return;
+				}
+				logger::info("{:08X}: {} brings her in ({:.0f} % chance)", a_target->GetFormID(), a_blow.what, a_blow.startChance * 100.0f);
+			}
 			if (!Activate(a_target)) {
 				return;
 			}
@@ -1690,7 +1739,7 @@ namespace delirium
 		if (r < 0) {
 			logger::error("  {} task: {}", how, LastError());
 		}
-		const float push = AddPush(a, at, b.dir, want);
+		const float push = AddPush(a, at, b.dir, want, pelvisShare_);
 		{
 			float hp[3]{}, hq[4]{};
 			dl.nm_agent_get_part_transform(a.agent, kHead, hp, hq);
@@ -1997,8 +2046,9 @@ namespace delirium
 		a.blendingOut = false;
 	}
 
-	float Engine::AddPush(Active& a, const float* a_at, const V3& a_dir, float a_push)
+	float Engine::AddPush(Active& a, const float* a_at, const V3& a_dir, float a_push, float a_pelvis)
 	{
+		// a_pelvis: that share goes to the pelvis, so the whole body is driven back into catch steps instead of folding
 		float push = a_push;
 		if (a.age - a.lastPushAt < 0.3f) {
 			push = std::max(0.0f, a_push - a.lastPush);  // the same blow seen twice (hit + stagger): the stronger one counts
@@ -2008,8 +2058,15 @@ namespace delirium
 			a.lastPushAt = a.age;
 		}
 		if (push > 0.0f) {
-			const float imp[3]{ push * a_dir.x, push * a_dir.y, push * a_dir.z };
+			const float k = 1.0f - a_pelvis;
+			const float imp[3]{ k * push * a_dir.x, k * push * a_dir.y, k * push * a_dir.z };
 			dl.nm_agent_apply_push(a.agent, a_at, imp);
+			if (a_pelvis > 0.0f) {
+				float pp[3]{}, pq[4]{};
+				dl.nm_agent_get_part_transform(a.agent, 0, pp, pq);
+				const float ip[3]{ a_pelvis * push * a_dir.x, a_pelvis * push * a_dir.y, a_pelvis * push * a_dir.z };
+				dl.nm_agent_apply_push(a.agent, pp, ip);
+			}
 		}
 		return push;
 	}
@@ -2105,9 +2162,10 @@ namespace delirium
 		const float side = std::sqrt(1.0f - blastUp_ * blastUp_);
 		const V3    dir{ d.x * side, d.y * side, blastUp_ };
 		// by its damage (the one this explosion does, else its form's) and how near: full at the centre, fFarShare at the edge
-		const float radius = std::max(1.0f, a_ex->radius > 0.0f ? a_ex->radius : a_base->data.radius);
+		const auto& ex = a_ex->GetExplosionRuntimeData();  // its layout differs between SE and AE
+		const float radius = std::max(1.0f, ex.radius > 0.0f ? ex.radius : a_base->data.radius);
 		// its damage: the spell's that set it off, else the explosion's own, else its form's
-		const float damage = std::clamp(a_spellDamage > 0.0f ? a_spellDamage : a_ex->damage > 0.0f ? a_ex->damage : a_base->data.damage, 0.0f, 1000.0f);
+		const float damage = std::clamp(a_spellDamage > 0.0f ? a_spellDamage : ex.damage > 0.0f ? ex.damage : a_base->data.damage, 0.0f, 1000.0f);
 		const float closeness = std::clamp(1.0f - dist / radius, 0.0f, 1.0f);
 		const float share = blastFar_ + (1.0f - blastFar_) * closeness;
 		const float scale = DamageScale(a_target, damage) * share;
@@ -2601,6 +2659,18 @@ namespace delirium
 
 		std::unordered_map<RE::FormID, std::chrono::steady_clock::time_point> g_lastSpellHit;  // hit sink thread only
 
+		bool Staggers(const RE::MagicItem* a_magic)
+		{
+			if (a_magic) {
+				for (const auto* e : a_magic->effects) {
+					if (e && e->baseEffect && e->baseEffect->HasArchetype(RE::EffectSetting::Archetype::kStagger)) {
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+
 		// a spell's health damage (its harmful health effects' magnitudes; perks and resistances left out)
 		float SpellDamage(const RE::MagicItem* a_magic)
 		{
@@ -2653,16 +2723,19 @@ namespace delirium
 				}
 				int  kind = -1;
 				bool channel = false;  // a concentration spell: hits as long as it is held
+				bool staggers = false;  // a spell with a stagger effect: always brings her in, like any stagger
 				if (auto* w = src ? src->As<RE::TESObjectWEAP>() : nullptr) {
 					if (w->IsBow() || w->IsCrossbow()) {
 						kind = Engine::kArrow;
 					} else if (w->IsStaff()) {
 						kind = Element(w->formEnchanting);  // a staff: its spell is its enchantment
 						channel = w->formEnchanting && w->formEnchanting->GetCastingType() == RE::MagicSystem::CastingType::kConcentration;
+						staggers = Staggers(w->formEnchanting);
 					}
 				} else if (auto* m = src ? src->As<RE::MagicItem>() : nullptr) {
 					kind = Element(m);
 					channel = m->GetCastingType() == RE::MagicSystem::CastingType::kConcentration;
+					staggers = Staggers(m);
 				}
 				if (kind < 0) {
 					return RE::BSEventNotifyControl::kContinue;  // a melee hit, a heal, a ward, ...
@@ -2678,7 +2751,7 @@ namespace delirium
 					last = now;
 				}
 				// a spell's hit comes before its missile's impact is recorded: look for it a frame later
-				g_tasks->AddTask([h = target->GetHandle(), c = a_event->cause ? a_event->cause->GetHandle() : RE::ObjectRefHandle{}, kind, spell, channel]() {
+				g_tasks->AddTask([h = target->GetHandle(), c = a_event->cause ? a_event->cause->GetHandle() : RE::ObjectRefHandle{}, kind, spell, channel, staggers]() {
 					auto t = h.get();
 					if (!t) {
 						return;
@@ -2689,7 +2762,7 @@ namespace delirium
 							away = t->GetPosition() - cause->GetPosition();
 							away.z = 0.0f;
 						}
-						Engine::Get().OnHit(t.get(), t->GetPosition(), away, false, kind, true);
+						Engine::Get().OnHit(t.get(), t->GetPosition(), away, false, kind, true, staggers);
 						return;
 					}
 					RE::NiPoint3 at, vel;
@@ -2711,7 +2784,7 @@ namespace delirium
 					} else if (!exact) {
 						return;
 					}
-					Engine::Get().OnHit(t.get(), at, vel, exact, kind);
+					Engine::Get().OnHit(t.get(), at, vel, exact, kind, false, staggers);
 				});
 				return RE::BSEventNotifyControl::kContinue;
 			}

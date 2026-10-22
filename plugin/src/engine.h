@@ -46,7 +46,8 @@ namespace delirium
 		// what hit her: an arrow or bolt, or a destruction spell's projectile by its element
 		enum HitKind : int { kArrow, kFrost, kFire, kShock, kMagic };
 		// main thread: a projectile hit a living NPC (game units, units/s; a_exact: a_at is where it went in)
-		void OnHit(RE::Actor* a_target, const RE::NiPoint3& a_at, const RE::NiPoint3& a_vel, bool a_exact, int a_kind, bool a_channel = false);
+		// a_sure: brings her in whatever the chance (a spell that staggers, the console)
+		void OnHit(RE::Actor* a_target, const RE::NiPoint3& a_at, const RE::NiPoint3& a_vel, bool a_exact, int a_kind, bool a_channel = false, bool a_sure = false);
 		// any weapon hit on an actor (Actor::ProcessHitData, before Skyrim's): kept as her last hit
 		void OnHitData(RE::Actor* a_target, const RE::HitData& a_hit);
 		// Skyrim staggered her (a_started: it really did now): Delirium's push takes the stagger's place on the body
@@ -210,7 +211,7 @@ namespace delirium
 		void Push(Active& a_act, RE::Actor* a_actor);
 		// a push at a_at (metres, the agent's frame) along a_dir; with another push in the last 0.3 s only what this
 		// one adds over it. Returns the N s applied
-		float AddPush(Active& a, const float* a_at, const V3& a_dir, float a_push);
+		float AddPush(Active& a, const float* a_at, const V3& a_dir, float a_push, float a_pelvis = 0.0f);
 		float DamageScale(RE::Actor* a_target, float a_damage) const;  // the push's scale for a hit of this much damage
 		// a melee blow's push (N s, 0 if it isn't one) and its way (unit): by the attack, the weapon's weight and the damage
 		float StrikePush(RE::Actor* a_target, const RE::HitData& a_hit, RE::NiPoint3& a_dir) const;
@@ -235,6 +236,7 @@ namespace delirium
 			int          element{ -1 };  // kFire / kShock: that reaction on top, for its own time
 			bool         shot{};         // a projectile went in: Delirium's shot task. Else by strength: a flinch or a step
 			bool         canStart{ true };  // may bring her into Delirium (a melee blow only joins a reaction)
+			float        startChance{ 1.0f };  // chance it brings her in when she isn't in Delirium yet (a killing blow always does)
 			float        oomph{};        // 0-1, how far past a plain hit it is: a harder jolt (the shot's spin, lean, push)
 			bool         join{};         // a reaction started this moment (a direct hit, then its blast): only the push adds
 			V3           fly{};          // m/s: thrown (an explosion), alive in the air; zero: on her feet
@@ -394,6 +396,8 @@ namespace delirium
 		float         meleeKnockAt_{ 1.01f };   // [Melee] fKnockAt: from this oomph the blow takes her down
 		float         headWhip_{ 0.2f };        // [Melee] fHeadWhip: share of the push at the head too
 		float         hitMaxPush_{ 150.0f };    // [Hits] fMaxPush: a projectile's push at most (past it, the behaviours carry it)
+		float         pelvisShare_{ 0.0f };     // [Hits] fPelvisShare: share of a standing hit's push at the pelvis (catch steps, not folding)
+		int           maxSteps_{ 10 };          // [Hits] iMaxSteps: catch steps a shot may take (Delirium's default 6)
 		float         meleeMaxPush_{ 160.0f };  // [Melee] fMaxPush: a blow's push at most (past it, the behaviours carry it: one shove is a limp ragdoll)
 		float         flyUp_{ 0.65f };          // [Explosions] fFlyUp: m/s up per m/s along
 		float         flyMin_{ 2.0f }, flyMax_{ 9.0f };  // [Explosions] fFlyMin / fFlyMax: slower than this she only reels; the cap
@@ -405,6 +409,10 @@ namespace delirium
 		float         meleeChop_{ 0.35f };      // [Melee] fChop: an overhead chop pushes this much down too
 		float         flinchBelow_{ 55.0f };    // [Melee] fFlinchBelow: a lighter blow flinches, a heavier one steps
 		float         channelLinger_{ 0.6f };  // [Spells] fChannelLinger: s a channel's reaction lasts after its last hit
+		float         spellChance_[2]{ 0.3f, 0.5f };    // [Spells] fStartChance / fStartChanceHurt: a missile brings her in (full health, near death)
+		float         channelChance_[2]{ 0.1f, 0.2f };  // [Spells] fChannelChance / fChannelChanceHurt: per second of channel, the same way
+		std::unordered_map<RE::FormID, std::chrono::steady_clock::time_point> channelTick_;  // last channel tick on someone not in Delirium (under lock_)
+		float StartChance(RE::Actor* a_target, const float (&a_chance)[2]) const;  // by her health: the more hurt, the likelier
 		float         wounded_{ 0.2f };     // [Arrows] fWoundedBelow: under this share of health a hit takes her down
 		float         colRadius_{ 600.0f }, colHeight_{ 300.0f };  // game units around the NPC
 		std::size_t   colMaxTris_{ 40000 };
