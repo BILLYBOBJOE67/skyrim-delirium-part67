@@ -44,7 +44,7 @@ def group(name):
 
 print(f"{len(keys)} paired trials;  A {sys.argv[1]}  vs  B {sys.argv[2]}")
 print(f"{'group':34} {'n':>4} | {'fall% A/B':>9} {'agree':>5} | {'act A/B':>9} {'late A/B':>9} | {'headmin A/B':>11} | {'moved A/B':>9} | {'settle A/B':>10}")
-for (fam, sub), rows in sorted(group(None).items(), key=lambda x: (["push", "shot", "thrown", "lying"].index(x[0][0]), x[0][1] != "all", x[0][1])):
+for (fam, sub), rows in sorted(group(None).items(), key=lambda x: (["push", "shot", "thrown", "lying", "channel"].index(x[0][0]), x[0][1] != "all", x[0][1])):
     ra = [r[0] for r in rows]
     rb = [r[1] for r in rows]
     fa, fb = mean(int(r["fell"]) for r in ra) * 100, mean(int(r["fell"]) for r in rb) * 100

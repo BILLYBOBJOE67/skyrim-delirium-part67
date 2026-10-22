@@ -114,8 +114,8 @@
       ],
       "limits": [
         [
-          -0.61086524,
-          0.61086524
+          -0.9599311,
+          0.7853982
         ],
         [
           -0.29670596,
@@ -131,7 +131,7 @@
         false,
         false
       ],
-      "muscle_stiffness": 4.0,
+      "muscle_stiffness": 1.0,
       "damping": 18.0,
       "strength": 81.0,
       "max_torque": [
@@ -252,8 +252,8 @@
       ],
       "limits": [
         [
-          -0.61086524,
-          0.61086524
+          -0.9599311,
+          0.7853982
         ],
         [
           -0.29670596,
@@ -269,7 +269,7 @@
         true,
         true
       ],
-      "muscle_stiffness": 4.0,
+      "muscle_stiffness": 1.0,
       "damping": 18.0,
       "strength": 81.0,
       "max_torque": [
@@ -637,7 +637,7 @@
         false,
         false
       ],
-      "muscle_stiffness": 0.7,
+      "muscle_stiffness": 1.0,
       "damping": 20.0,
       "strength": 100.0,
       "max_torque": [
@@ -683,7 +683,7 @@
         false,
         false
       ],
-      "muscle_stiffness": 0.7,
+      "muscle_stiffness": 1.0,
       "damping": 20.0,
       "strength": 100.0,
       "max_torque": [
@@ -729,7 +729,7 @@
         false,
         false
       ],
-      "muscle_stiffness": 2.0,
+      "muscle_stiffness": 1.0,
       "damping": 18.0,
       "strength": 81.0,
       "max_torque": [
@@ -821,7 +821,7 @@
         true,
         true
       ],
-      "muscle_stiffness": 0.7,
+      "muscle_stiffness": 1.0,
       "damping": 20.0,
       "strength": 100.0,
       "max_torque": [
@@ -867,7 +867,7 @@
         false,
         false
       ],
-      "muscle_stiffness": 0.7,
+      "muscle_stiffness": 1.0,
       "damping": 20.0,
       "strength": 100.0,
       "max_torque": [
@@ -913,7 +913,7 @@
         true,
         true
       ],
-      "muscle_stiffness": 2.0,
+      "muscle_stiffness": 1.0,
       "damping": 18.0,
       "strength": 81.0,
       "max_torque": [
@@ -1025,7 +1025,7 @@
           0.031671062
         ]
       ],
-      "mass": 1.16
+      "mass": 1.6
     },
     {
       "name": "Thigh_Right",
@@ -1103,7 +1103,7 @@
           0.031670943
         ]
       ],
-      "mass": 1.16
+      "mass": 1.6
     },
     {
       "name": "Spine0",
@@ -1129,7 +1129,7 @@
           1.1011822
         ]
       ],
-      "mass": 5.6
+      "mass": 7.2
     },
     {
       "name": "Spine1",
@@ -1155,7 +1155,7 @@
           1.2336696
         ]
       ],
-      "mass": 5.52
+      "mass": 6.4
     },
     {
       "name": "Spine2",
@@ -1181,7 +1181,7 @@
           1.3817213
         ]
       ],
-      "mass": 7.2
+      "mass": 5.6
     },
     {
       "name": "Spine3",
@@ -1207,7 +1207,7 @@
           1.5377283
         ]
       ],
-      "mass": 7.68
+      "mass": 5.92
     },
     {
       "name": "Neck",
@@ -2068,7 +2068,7 @@
     {
       "name": "Foot_Left",
       "parent": 2,
-      "mass": 1.16,
+      "mass": 1.6,
       "radius": 0.04,
       "half": 0.0,
       "offset": {
@@ -2277,7 +2277,7 @@
     {
       "name": "Foot_Right",
       "parent": 5,
-      "mass": 1.16,
+      "mass": 1.6,
       "radius": 0.04,
       "half": 0.0,
       "offset": {
@@ -2350,7 +2350,7 @@
     {
       "name": "Spine0",
       "parent": 0,
-      "mass": 5.6,
+      "mass": 7.2,
       "radius": 0.1,
       "half": 0.05,
       "offset": {
@@ -2418,7 +2418,7 @@
     {
       "name": "Spine1",
       "parent": 7,
-      "mass": 5.52,
+      "mass": 6.4,
       "radius": 0.1,
       "half": 0.06,
       "offset": {
@@ -2486,7 +2486,7 @@
     {
       "name": "Spine2",
       "parent": 8,
-      "mass": 7.2,
+      "mass": 5.6,
       "radius": 0.105,
       "half": 0.065,
       "offset": {
@@ -2554,7 +2554,7 @@
     {
       "name": "Spine3",
       "parent": 9,
-      "mass": 7.68,
+      "mass": 5.92,
       "radius": 0.1,
       "half": 0.08,
       "offset": {

@@ -167,6 +167,10 @@ namespace delirium
 			RE::NiTransform                    comWorld;
 			bool                               haveCom{};
 			int                                rootFixLog{}, nanLog{};
+			std::array<Q, 21>                  restRot{};  // the body's own standing stance, each part in its parent's frame (legs use it)
+			std::array<V3, 21>                 restPos{};
+			std::string                        trackFile;  // [Test] bRecordPoses: where her held poses go, empty when not recorded
+			int                                trackN{};
 			float                              maxRootFix{};
 			// trace: the pelvis when the last arrow hit, and the way it flew (flat)
 			bool                               haveShot{};
@@ -192,6 +196,7 @@ namespace delirium
 			std::vector<Kick>                  kicks;  // blows on her while she is down, put on Skyrim's bodies at the next drive
 			float                              flyAt{};             // age she was thrown
 			int                                filled{};  // trace: frames this second Skyrim skipped its pose copy (ours put on here)
+			bool                               filling{};  // in that filler AfterPose: the bones hold our pose, not the animation
 			V3                                 shotPelvis, shotDir;
 			// the last push (age, N s): a hit and its stagger come together and push once, the stronger one
 			float                              lastPushAt{ -10.0f }, lastPush{};
@@ -296,6 +301,9 @@ namespace delirium
 		bool SmoothRoot(Active& a, RE::Actor* a_actor);  // ragdolled: the top node turns no faster than cloth physics allows (true: moved)
 		void AddWorld(Active& a, RE::Actor* a_actor, const RE::NiPoint3& a_center, bool a_quiet);  // Skyrim's collision around a_center
 		void Calibrate(Active& a, RE::Actor* a_actor);
+		void DumpRagdoll(const Active& a, RE::Actor* a_actor);  // Skyrim's ragdoll joints to a JSON for the fit-test body
+		void RecordPose(Active& a, RE::Actor* a_actor, const std::array<V3, 21>& pos, const std::array<Q, 21>& rot);
+		void StandingLegs(const Active& a, std::array<V3, 21>& pos, std::array<Q, 21>& rot) const;
 		void Trace(Active& a, RE::Actor* a_actor, const char* a_where);
 		void RefreshBones(Active& a);
 
@@ -319,6 +327,9 @@ namespace delirium
 		float         push_{ 80.0f };
 		bool          autoRelease_{ true };
 		bool          followAnimation_{ true };
+		bool          standingLegs_{ true };  // [Test] bStandingLegs: the legs hold the body's own stance, not the animation's
+		bool          recordPoses_{ false };  // [Test] bRecordPoses: the held pose each frame while standing, for fit-test sweep STANCE_TRACK=
+		int           tracks_{ 0 };
 		bool          collision_{ true };
 		bool          takeOver_{ true };  // [Ragdoll] bTakeOver
 		float         gain_{ 1.0f };      // [Ragdoll] fTorqueGain
@@ -342,6 +353,7 @@ namespace delirium
 		float         shoutThrowFrom_{ 0.6f };  // [Shouts] fThrowFrom: a shout's stagger from this magnitude throws her
 		float         shoutFly_{ 9.0f };        // [Shouts] fFlySpeed: m/s she is thrown at, at magnitude 1     // [Deaths] fDyingTime: s she may die on her feet before the death goes through (0: off)
 		std::unordered_map<RE::FormID, Held> held_;      // deaths held back (under lock_)
+		std::unordered_set<std::string>      ragdollDumps_;  // limit sets already written by DumpRagdoll
 		std::unordered_set<RE::FormID>       heldDied_;  // killed after a hold: her death ragdoll gets no new shot or push
 		std::atomic<RE::Actor*>              letKill_{ nullptr };  // the kill we make ourselves goes through
 		bool          aboutJoint_{ true };   // [Ragdoll] bTurnAboutJoint: a muscle turns the limb about its joint (the spin and the swing that goes with it)

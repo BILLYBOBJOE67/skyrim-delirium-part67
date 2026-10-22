@@ -341,7 +341,9 @@ namespace delirium
 		push_ = static_cast<float>(ini.GetDoubleValue("Test", "fPush", 80.0));
 		autoRelease_ = ini.GetBoolValue("Test", "bAutoRelease", true);
 		followAnimation_ = ini.GetBoolValue("Test", "bFollowAnimation", true);
-		collision_ = ini.GetBoolValue("Collision", "bWorldCollision", true);
+		recordPoses_ = ini.GetBoolValue("Test", "bRecordPoses", false);
+		standingLegs_ = ini.GetBoolValue("Test", "bStandingLegs", true);
+		collision_ =ini.GetBoolValue("Collision", "bWorldCollision", true);
 		colRadius_ = static_cast<float>(ini.GetDoubleValue("Collision", "fRadius", 600.0));
 		colHeight_ = static_cast<float>(ini.GetDoubleValue("Collision", "fHeight", 300.0));
 		colMaxTris_ = static_cast<std::size_t>(std::max(1000L, ini.GetLongValue("Collision", "iMaxTriangles", 40000)));
@@ -1096,13 +1098,37 @@ namespace delirium
 			return false;
 		}
 		AddWorld(*act, a_actor, act->origin, false);
+		{
+			// the agent starts in its build's standing stance: kept, each part in its parent's frame, for StandingLegs
+			std::array<V3, 21> rp;
+			std::array<Q, 21>  rq;
+			for (int i = 0; i < 21; ++i) {
+				float p[3]{}, q[4]{ 0, 0, 0, 1 };
+				dl.nm_agent_get_part_transform(act->agent, i, p, q);
+				rp[i] = { p[0], p[1], p[2] };
+				rq[i] = { q[0], q[1], q[2], q[3] };
+			}
+			for (std::size_t i = 1; i < 21; ++i) {
+				const auto pa = static_cast<std::size_t>(kParent[i]);
+				act->restRot[i] = Mul(Conj(rq[pa]), rq[i]);
+				act->restPos[i] = Rot(Conj(rq[pa]), Sub(rp[i], rp[pa]));
+			}
+		}
 		dl.nm_agent_set_mode(act->agent, NM_MODE_LEAD);
 		for (int i = 0; i < 21; ++i) {
 			const float p[3]{ pos[i].x, pos[i].y, pos[i].z }, q[4]{ rot[i].x, rot[i].y, rot[i].z, rot[i].w };
 			dl.nm_agent_set_part_state(act->agent, i, p, q, zero, zero);
 		}
-		// the posture the muscles and balance hold: the NPC's own pose, not the GTA character's stance
-		SetZeroPose(*act, pos, rot);
+		// the posture the muscles and balance hold: the NPC's own pose, not the GTA character's stance (standing: her
+		// legs from the body's own stance, see StandingLegs)
+		{
+			auto zp = pos;
+			auto zr = rot;
+			if (!a_takeover) {
+				StandingLegs(*act, zp, zr);
+			}
+			SetZeroPose(*act, zp, zr);
+		}
 		// upright (F7): balance. Taken over from Skyrim's ragdoll: already falling, so break the fall
 		// (dead: the shot task once Skyrim's velocities are in, see InheritVelocity)
 		if (!a_death) {
@@ -1188,6 +1214,57 @@ namespace delirium
 			}
 		}
 		return worst;
+	}
+
+	// [Test] bRecordPoses: the pose she holds each frame while standing (her live animation: stance, staggers, hit
+	// reactions), one line per frame (age, then each part's position and rotation xyzw relative to where she was taken),
+	// first 4 NPCs a session, 10 s each. fit-test sweep STANCE_TRACK= replays it as the zero pose
+	void Engine::RecordPose(Active& a, RE::Actor* a_actor, const std::array<V3, 21>& pos, const std::array<Q, 21>& rot)
+	{
+		if (!recordPoses_ || a.trackN >= 600) {
+			return;
+		}
+		if (a.trackFile.empty()) {
+			if (tracks_ >= 4) {
+				return;
+			}
+			++tracks_;  // numbered: a summoned NPC's FormID is reused by the next one
+			a.trackFile = (*SKSE::log::log_directory() / fmt::format("SkyrimDelirium_track_{}_{:08X}.txt", tracks_, a_actor->GetFormID())).string();
+			std::ofstream(a.trackFile) << "heading " << a_actor->data.angle.z << " scale " << a.scale << "\n";
+			logger::info("{:08X}: recording her held poses to {}", a_actor->GetFormID(), a.trackFile);
+		}
+		std::ostringstream f;
+		f << a.age;
+		for (std::size_t i = 0; i < 21; ++i) {
+			f << " " << pos[i].x << " " << pos[i].y << " " << pos[i].z << " " << rot[i].x << " " << rot[i].y << " " << rot[i].z << " " << rot[i].w;
+		}
+		std::ofstream(a.trackFile, std::ios::app) << f.str() << "\n";
+		++a.trackN;
+	}
+
+	// [Test] bStandingLegs: while she stands the hips, knees and ankles hold the body's own stance, soles level, under
+	// the animation's pelvis; the spine, arms and head keep the animation. Skyrim's combat animations lunge, step and
+	// tiptoe with planted feet, and holding that pose tipped her over with no hit at all (fit-test STANCE_TRACK on the
+	// recorded tracks: 100% falls, 0% with these legs)
+	void Engine::StandingLegs(const Active& a, std::array<V3, 21>& pos, std::array<Q, 21>& rot) const
+	{
+		if (!standingLegs_) {
+			return;
+		}
+		for (std::size_t i = 1; i <= 6; ++i) {
+			const auto p = static_cast<std::size_t>(kParent[i]);
+			rot[i] = Mul(rot[p], a.restRot[i]);
+			pos[i] = Add(pos[p], Rot(rot[p], a.restPos[i]));
+		}
+		for (std::size_t i : { std::size_t{ 3 }, std::size_t{ 6 } }) {
+			// a foot's local y is up when it stands flat: turn it the shortest way back to world up
+			const V3    u = Rot(rot[i], { 0, 1, 0 });
+			const Q     t{ u.y, -u.x, 0.0f, 1.0f + u.z };  // half-way quaternion from u to +z (u x z, 1 + u.z)
+			const float n = std::sqrt(t.x * t.x + t.y * t.y + t.z * t.z + t.w * t.w);
+			if (n > 1e-4f) {
+				rot[i] = Mul({ t.x / n, t.y / n, t.z / n, t.w / n }, rot[i]);
+			}
+		}
 	}
 
 	void Engine::SetZeroPose(Active& a, const std::array<V3, 21>& pos, const std::array<Q, 21>& rot)
@@ -3733,7 +3810,9 @@ namespace delirium
 				// upright, Skyrim skipped its pose copy this frame (its animation update ran without one): the bones
 				// would hold last frame's pose and the body stutters, so ours go on here
 				++a.filled;
+				a.filling = true;
 				AfterPose(a_actor, false);
+				a.filling = false;
 			}
 			a.copies = 0;
 			// knocked down in Delirium but Skyrim's ragdoll never came, or is over (a save loaded, a get-up we missed): let go
@@ -3858,7 +3937,10 @@ namespace delirium
 			}
 			std::array<V3, 21> pos;
 			std::array<Q, 21>  rot;
-			if (followAnimation_ && !a.knockQueued) {
+			// the live animation only from a real pose copy: on a filler frame the bones still hold our own pose from the last
+			// frame, and taking that as the pose to hold let her own fall become the target (she kept leaning into it)
+			const bool follow = followAnimation_ && !a.knockQueued && !a.filling;
+			if (follow) {
 				PartsFromBones(a, pos, rot, nullptr);
 			}
 			if (a.knockQueued) {
@@ -3964,9 +4046,11 @@ namespace delirium
 					b.hasTarget = true;
 				}
 			}
-			if (followAnimation_ && !a.knockQueued) {
+			if (follow) {
 				// the posture to hold follows the live animation: a guard stays up, a talking NPC keeps gesturing
 				// (not once ragdolled: then the "animation" is Skyrim's ragdoll, which is us)
+				RecordPose(a, a_actor, pos, rot);
+				StandingLegs(a, pos, rot);
 				SetZeroPose(a, pos, rot);
 			}
 			return;
@@ -4368,6 +4452,70 @@ namespace delirium
 			}
 			logger::info("{:08X}: Skyrim ragdoll joint limits (deg):{}", a_actor->GetFormID(), ls);
 		}
+		DumpRagdoll(a, a_actor);
+	}
+
+	// Skyrim's ragdoll joints for the offline test body (fit-test): each constraint's Havok frames (in its bodies' frames),
+	// each body's rotation in its Delirium part (rig offset * Skyrim's mapping) and the limits. One file per new set of limits.
+	void Engine::DumpRagdoll(const Active& a, RE::Actor* a_actor)
+	{
+		if (!a.driver || !a.driver->ragdoll || ragdollDumps_.size() >= 12) {
+			return;
+		}
+		const auto body = [&](RE::hkpEntity* e) -> const BodyLink* {
+			for (const auto& b : a.bodies) {
+				if (b.body && static_cast<RE::hkpEntity*>(b.body) == e) {
+					return &b;
+				}
+			}
+			return nullptr;
+		};
+		const auto q = [](const Q& r) { return fmt::format("[{:.6f},{:.6f},{:.6f},{:.6f}]", r.x, r.y, r.z, r.w); };
+		const auto cols = [](const RE::hkTransform& t) {
+			const auto* f = reinterpret_cast<const float*>(&t);
+			return fmt::format("[[{:.6f},{:.6f},{:.6f}],[{:.6f},{:.6f},{:.6f}],[{:.6f},{:.6f},{:.6f}]]", f[0], f[1], f[2], f[4], f[5], f[6], f[8], f[9], f[10]);
+		};
+		const auto side = [&](const BodyLink* b) {
+			if (!b) {
+				return std::string("null");
+			}
+			const bool ok = b->mapped && b->rotPart >= 0;
+			return fmt::format("{{\"bone\":\"{}\",\"part\":{},\"part_ref\":\"{}\",\"inv_inertia_mass\":[{:.6g},{:.6g},{:.6g},{:.6g}],\"body_in_part\":{}}}", b->node ? b->node->name.c_str() : "?", ok ? b->rotPart : -1,
+				ok ? rig_[static_cast<std::size_t>(b->rotPart)].ref : std::string("?"), b->massInv[0], b->massInv[1], b->massInv[2], b->massInv[3],
+				ok ? q(Mul(rig_[static_cast<std::size_t>(b->rotPart)].offset, b->mapR)) : "null");
+		};
+		std::string js, sig;
+		for (auto* ci : a.driver->ragdoll->constraints) {
+			auto* d = ci ? ci->data : nullptr;
+			if (!d || (d->GetType() != 7 && d->GetType() != 2)) {
+				continue;
+			}
+			std::string lim, fa, fb;
+			if (d->GetType() == 7) {
+				auto& at = static_cast<RE::hkpRagdollConstraintData*>(d)->atoms;
+				lim = fmt::format("\"type\":\"ragdoll\",\"twist\":[{:.5f},{:.5f}],\"cone\":{:.5f},\"planes\":[{:.5f},{:.5f}]", at.twistLimit.minAngle,
+					at.twistLimit.maxAngle, at.coneLimit.maxAngle, at.planesLimit.minAngle, at.planesLimit.maxAngle);
+				fa = cols(at.transforms.transformA);
+				fb = cols(at.transforms.transformB);
+			} else {
+				auto& at = static_cast<RE::hkpLimitedHingeConstraintData*>(d)->atoms;
+				lim = fmt::format("\"type\":\"hinge\",\"angle\":[{:.5f},{:.5f}]", at.angLimit.minAngle, at.angLimit.maxAngle);
+				fa = cols(at.transforms.transformA);
+				fb = cols(at.transforms.transformB);
+			}
+			sig += lim;
+			js += fmt::format("{}\n  {{{},\"child\":{},\"parent\":{},\"frame_child\":{},\"frame_parent\":{}}}", js.empty() ? "" : ",", lim,
+				side(body(ci->entities[0])), side(body(ci->entities[1])), fa, fb);
+		}
+		if (!ragdollDumps_.insert(sig).second) {
+			return;
+		}
+		const auto* base = a_actor->GetActorBase();
+		const auto  name = fmt::format("SkyrimDelirium_ragdoll_{:08X}.json", a_actor->GetFormID());
+		std::ofstream(*SKSE::log::log_directory() / name) << fmt::format(
+			"{{\"format\":\"skyrim-ragdoll-1\",\"actor\":\"{:08X}\",\"female\":{},\"race\":\"{:08X}\",\"scale\":{:.4f},\n \"note\":\"frame columns: ragdoll twist/planes/cross, hinge axle/perp/perp2; body_in_part: the body's rotation in the Delirium part (xyzw)\",\n \"joints\":[{}\n]}}\n",
+			a_actor->GetFormID(), base && base->IsFemale(), a_actor->GetRace() ? a_actor->GetRace()->GetFormID() : 0u, a.scale, js);
+		logger::info("{:08X}: wrote {} (Skyrim's ragdoll joints for the test body)", a_actor->GetFormID(), name);
 	}
 
 	namespace

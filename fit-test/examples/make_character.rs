@@ -27,8 +27,9 @@ const JOINTS: [&str; 20] = [
 const RIGHT: [usize; 7] = [4, 5, 6, 17, 18, 19, 20];
 
 // Segment masses, % of an 80 kg man (after Winter's segment tables; the trunk split over pelvis, four spine parts and
-// the shoulder girdles; head and neck split 6.9 / 1.2)
-const MASS_PCT: [f32; 21] = [14.2, 10.0, 4.65, 1.45, 10.0, 4.65, 1.45, 7.0, 6.9, 9.0, 9.6, 1.2, 6.9, 1.5, 2.8, 1.6, 0.6, 1.5, 2.8, 1.6, 0.6];
+// the shoulder girdles; head and neck split 6.9 / 1.2). The trunk carries its weight low (abdomen over chest) and the
+// feet include the boots: with the chest heavier the balancer reads a high centre of mass and shots tip her over
+const MASS_PCT: [f32; 21] = [14.2, 10.0, 4.65, 2.0, 10.0, 4.65, 2.0, 9.0, 8.0, 7.0, 7.4, 1.2, 6.9, 1.5, 2.8, 1.6, 0.6, 1.5, 2.8, 1.6, 0.6];
 const BODY_KG: f32 = 80.0;
 
 fn main() {
@@ -175,9 +176,9 @@ fn main() {
         match k {
             1 => vec![(right, -25.0, 120.0), (fwd, -25.0 - hip_out, 45.0 - hip_out), (al, -45.0, 40.0)],
             2 => vec![(-right, -3.0 - knee_bent, 145.0 - knee_bent)],
-            // the ankle's ranges sit centred on its neutral: behaviours aim it from the middle of its range, and an
-            // off-centre range (as a real ankle has) tips the stance and drops the character under shots (fit-test sweep)
-            3 => vec![(right, -35.0, 35.0), (-up, -17.0, 17.0), (-fwd, -22.0, 22.0)],
+            // centred and wide in flexion: Delirium aims a joint from the middle of its range, and the balancer needs
+            // room both ways at the ankle to catch a hit (an off-centre or narrow range drops her on shots)
+            3 => vec![(right, -55.0, 45.0), (-up, -17.0, 17.0), (-fwd, -22.0, 22.0)],
             7 => vec![(-right, -15.0, 25.0), (-fwd, -10.0, 10.0), (up, -5.0, 5.0)],
             8 => vec![(-right, -12.0, 20.0), (-fwd, -12.0, 12.0), (up, -8.0, 8.0)],
             9 => vec![(-right, -10.0, 15.0), (-fwd, -12.0, 12.0), (up, -15.0, 15.0)],
@@ -265,9 +266,7 @@ fn main() {
         let (g, max) = muscle(i);
         let grp = JOINTS[i].trim_end_matches("_left").trim_end_matches("_right").trim_end_matches(|c: char| c.is_ascii_digit()).trim_end_matches('_').to_uppercase();
         let env = |k: String, d: f32| std::env::var(k).ok().and_then(|v| v.parse().ok()).unwrap_or(d);
-        // muscle stiffness: stiff ankles and wrists, looser shoulders and elbows (fit-test sweep: calmer limbs after a throw)
-        let ms = match grp.as_str() { "ANKLE" => 4.0, "WRIST" => 2.0, "SHOULDER" | "ELBOW" => 0.7, _ => 1.0 };
-        let (g, ms) = (g * env(format!("G_{grp}"), 1.0), env(format!("MS_{grp}"), ms));
+        let (g, ms) = (g * env(format!("G_{grp}"), 1.0), env(format!("MS_{grp}"), 1.0));
         let r = RIGHT.contains(&k) && !hinge(k);
         Joint {
             name: JOINTS[i].into(), index: i as u32, three: !hinge(k), pos: zp[k].to_array(), twist_axis: z.to_array(), lean_axis: x0.to_array(),
@@ -288,7 +287,7 @@ fn main() {
             name: NAMES[k].into(), parent: (PARENT[k] >= 0).then(|| PARENT[k] as usize), mass: MASS_PCT[k] * BODY_KG / 100.0, radius, half,
             offset: fr(Vec3::ZERO, Quat::IDENTITY), rest: Quat::IDENTITY.to_array(), anchor_parent: anchor_parent.to_array(), anchor: anchor.to_array(),
             limit: JointLimit::Cone { swing: 1.0, twist: 0.5 }, lower: k <= 6, reach: matches!(k, 14 | 15 | 18 | 19), bind: rot[k].to_array(),
-            boxed: boxed.map(|e| e.to_array()), inertia: [0.0; 3], frame: fr(centre[k], rot[k]),
+            boxed: boxed.map(|e| e.to_array()), inertia: [0.0; 3], frame: fr(centre[k], rot[k]), body_limit: None,
         }
     }).collect();
     let ch = Character { format: FORMAT.into(), joints, parts, self_collision: pairs, build: Some(build) };
