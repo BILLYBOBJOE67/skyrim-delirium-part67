@@ -1,0 +1,6 @@
+{
+  "mod": "C:/path/to/MO2/mods/Skyrim Delirium",
+  "delirium": "C:/path/to/delirium-physics",
+  "commonlib": "C:/path/to/CommonLibSSE-NG",
+  "pynifly": "C:/path/to/PyNifly/io_scene_nifly"
+}

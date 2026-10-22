@@ -7,9 +7,12 @@ Also writes each bone's bind world rotation (row-major 3x3, world = R @ local, a
 Skyrim has three spine bones where NM has four parts, so Spine3's joint is put halfway from Spine2 to the neck.
 """
 import json
+import os
 import sys
 
-sys.path.insert(0, r"C:\path\to\PyNifly\io_scene_nifly")
+# PyNifly's io_scene_nifly folder: "pynifly" in paths.local.json at the repo root (copy paths.example.json)
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "paths.local.json"), encoding="utf-8") as _f:
+    sys.path.insert(0, json.load(_f)["pynifly"])
 from pyn.pynifly import NifFile  # noqa: E402
 
 UNIT = 0.0142875  # metres per Skyrim game unit (Havok world scale)

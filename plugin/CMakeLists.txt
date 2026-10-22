@@ -9,8 +9,24 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 
 # AE only (1.6.x). CommonLib checkout shared with SkyFluid; Delirium's C header from the Delirium checkout
 # (the DLL is loaded at runtime, nothing links against it).
-set(COMMONLIB_DIR "C:/path/to/CommonLibSSE-NG" CACHE PATH "CommonLibSSE-NG checkout")
-set(DELIRIUM_DIR "C:/path/to/delirium-physics" CACHE PATH "Delirium checkout")
+# Where they are: paths.local.json at the repo root (copy paths.example.json), else -D on the command line,
+# else extern/ next to plugin/.
+set(_commonlib "${CMAKE_CURRENT_LIST_DIR}/../extern/CommonLibSSE-NG")
+set(_delirium "${CMAKE_CURRENT_LIST_DIR}/../extern/delirium-physics")
+set(_paths "${CMAKE_CURRENT_LIST_DIR}/../paths.local.json")
+if(EXISTS "${_paths}")
+	file(READ "${_paths}" _json)
+	string(JSON _v ERROR_VARIABLE _err GET "${_json}" commonlib)
+	if(NOT _err)
+		set(_commonlib "${_v}")
+	endif()
+	string(JSON _v ERROR_VARIABLE _err GET "${_json}" delirium)
+	if(NOT _err)
+		set(_delirium "${_v}")
+	endif()
+endif()
+set(COMMONLIB_DIR "${_commonlib}" CACHE PATH "CommonLibSSE-NG checkout")
+set(DELIRIUM_DIR "${_delirium}" CACHE PATH "Delirium checkout")
 set(ENABLE_SKYRIM_SE OFF CACHE BOOL "" FORCE)
 set(ENABLE_SKYRIM_AE ON CACHE BOOL "" FORCE)
 set(ENABLE_SKYRIM_VR OFF CACHE BOOL "" FORCE)

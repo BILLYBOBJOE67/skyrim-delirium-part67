@@ -7,4 +7,5 @@ plugin/build/
 plugin/build.log
 
 # local tooling
+paths.local.json
 .claude/

@@ -3,12 +3,19 @@
 #   hotreload.ps1                  build + reload
 #   hotreload.ps1 -Cmd "push FF00098D 120"   only send command lines (separate several with ';')
 param(
-	[string]$Mod = 'C:\path\to\MO2\mods\Skyrim Delirium',
+	[string]$Mod = '',
+	[string]$Delirium = '',
 	[string]$Cmd = '',
 	[switch]$NoBuild
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+# folders not given: paths.local.json at the repo root (copy paths.example.json)
+$paths = Join-Path $root 'paths.local.json'
+$local = if (Test-Path $paths) { Get-Content $paths -Raw | ConvertFrom-Json } else { $null }
+if (-not $Mod -and $local) { $Mod = $local.mod }
+if (-not $Delirium -and $local) { $Delirium = $local.delirium }
+if (-not $Mod -or -not $Delirium) { Write-Output 'NO PATHS: pass -Mod and -Delirium, or copy paths.example.json to paths.local.json'; exit 3 }
 $skse = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'My Games\Skyrim Special Edition\SKSE'
 
 function Send([string[]]$lines) {
@@ -36,7 +43,7 @@ foreach ($ext in 'dll', 'pdb') {
 }
 # Delirium itself, when rebuilt. An older core loaded it straight from the mod folder and keeps it locked: a locked
 # file can still be renamed, so it moves aside and the new one goes in
-$dsrc = 'C:\path\to\delirium-physics\target\release\delirium_physics.dll'
+$dsrc = Join-Path $Delirium 'target\release\delirium_physics.dll'
 $ddst = Join-Path $Mod 'SKSE\Plugins\SkyrimDelirium\delirium_physics.dll'
 Get-ChildItem (Split-Path $ddst) -Filter 'delirium_physics.old*.dll' -ErrorAction SilentlyContinue | ForEach-Object { Remove-Item $_.FullName -ErrorAction SilentlyContinue }
 if ((Test-Path $dsrc) -and ((Get-FileHash $dsrc).Hash -ne (Get-FileHash $ddst).Hash)) {

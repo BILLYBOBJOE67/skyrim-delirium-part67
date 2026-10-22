@@ -3,12 +3,18 @@
 #   SKSE\Plugins\SkyrimDelirium\delirium_physics.dll, skyrim_build.txt, skyrim_rig.txt
 # The body and rig are made from the user's own GTA IV data (local\): local use only, never packaged for release.
 param(
-	[string]$Mod = 'C:\path\to\MO2\mods\Skyrim Delirium',
-	[string]$Delirium = 'C:\path\to\delirium-physics',
+	[string]$Mod = '',
+	[string]$Delirium = '',
 	[switch]$NoBuild
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
+# folders not given: paths.local.json at the repo root (copy paths.example.json)
+$paths = Join-Path $root 'paths.local.json'
+$local = if (Test-Path $paths) { Get-Content $paths -Raw | ConvertFrom-Json } else { $null }
+if (-not $Mod -and $local) { $Mod = $local.mod }
+if (-not $Delirium -and $local) { $Delirium = $local.delirium }
+if (-not $Mod -or -not $Delirium) { Write-Output 'NO PATHS: pass -Mod and -Delirium, or copy paths.example.json to paths.local.json'; exit 3 }
 
 if (-not $NoBuild) {
 	& "$root\plugin\build.cmd" Release
