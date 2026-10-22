@@ -157,6 +157,10 @@ namespace
 		static void thunk(RE::Actor* a_this, float a_delta)
 		{
 			func(a_this, a_delta);
+			// on SE 1.5.97 the same update is also called for any animated reference (fish, movable statics)
+			if (!a_this || !a_this->Is(RE::FormType::ActorCharacter)) {
+				return;
+			}
 			calls.fetch_add(1, std::memory_order_relaxed);
 			if (core::Use c; c) {
 				c->afterAnimation(a_this, a_delta);
