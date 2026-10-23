@@ -29,6 +29,9 @@ namespace delirium
 		constexpr int                 kChest = 10;
 		constexpr int                 kHead = 12;
 		constexpr float               kBlendOut = 0.4f;  // seconds from Delirium's pose back to the animation
+		constexpr float               kCorpseHold = 30.0f;  // seconds a corpse is driven at most, still or not
+		constexpr float               kRunawayKE = 50.0f;   // energy above which growth while down counts as running away
+		constexpr int                 kRunawaySeconds = 5;  // seconds in a row of that before Skyrim's ragdoll takes over
 		std::mt19937                  g_rng{ std::random_device{}() };
 		float                         Rand(float a_lo, float a_hi) { return std::uniform_real_distribution<float>(a_lo, a_hi)(g_rng); }
 
@@ -938,7 +941,7 @@ namespace delirium
 					const float force = w.size() >= 3 ? std::stof(w[2]) : 15.0f;
 					g_tasks->AddTask([h = a->GetHandle(), force]() {
 						auto* player = RE::PlayerCharacter::GetSingleton();
-						if (auto act = h.get(); act && player) {
+						if (auto act = h.get(); act && player && act->Get3D(false) && !act->IsDisabled()) {
 							if (auto* proc = act->GetActorRuntimeData().currentProcess) {
 								proc->KnockExplosion(act.get(), player->GetPosition(), force);
 							}
@@ -3493,6 +3496,9 @@ namespace delirium
 			++a.calls;
 			a.dtSum += a_delta;
 			a.age += dt;
+			if (a.death) {
+				a.deadFor += dt;
+			}
 			a.sincePush += dt;
 			// the bones were already posed from the last step, inside the animation update (AfterPose)
 			// every frame advances by exactly its own time, split into equal steps of at most kStep: a fixed step with
@@ -3553,6 +3559,9 @@ namespace delirium
 				dl.nm_agent_get_part_transform(a.agent, kHead, head, q);
 				logger::info("  t {:.0} s: head {:.2} m, KE {:.1}, balancing {}, fallen {}; {} animation updates ({:.0} per s of their time), {} pose copies", a.age, head[2], ke,
 					balancing, fallen, a.calls, a.dtSum > 0 ? a.calls / a.dtSum : 0.0f, a.poses);
+				// down and gaining energy second after second: nothing pushes her, so the simulation is running away
+				a.keRising = (a.knockQueued && ke > kRunawayKE && a.keLast >= 0.0f && ke > a.keLast * 1.1f) ? a.keRising + 1 : 0;
+				a.keLast = ke;
 				if (a.filled) {
 					logger::info("  {} frames without Skyrim's pose copy: ours put on after its update", a.filled);  // trace
 				}
@@ -3807,7 +3816,9 @@ namespace delirium
 				dl.nm_agent_get_part_transform(a.agent, 0, pp, hq);
 				const RE::NiPoint3 lean(hp[0] - pp[0], hp[1] - pp[1], 0.0f);
 				g_tasks->AddTask([h = a.actor, lean]() {
-					if (auto act = h.get()) {
+					// this runs a frame later: her 3D can be unloaded by then (Skyrim's knock reads it without a check),
+					// and we may have let her go already
+					if (auto act = h.get(); act && act->Get3D(false) && !act->IsDisabled() && Engine::Get().KeepsDown(act.get())) {
 						if (auto* proc = act->GetActorRuntimeData().currentProcess) {
 							proc->KnockExplosion(act.get(), KnockSource(act.get(), lean), 0.0f);
 							logger::info("{:08X}: into Skyrim's ragdoll state", act->GetFormID());
@@ -3869,6 +3880,16 @@ namespace delirium
 			// one body, Skyrim's ragdoll: once it lies still Skyrim takes over (corpse, or its own get-up)
 			if (autoRelease_ && a.settled > (a.death ? 1.0f : 0.15f)) {
 				Release(i, a.death ? "settled: the corpse is Skyrim's ragdoll already" : "settled: Skyrim's ragdoll gets up by itself");
+				return;
+			}
+			// a corpse that never lies still (wedged, or under the ground) would be driven for good: Skyrim's ragdoll
+			// is already running underneath, so hand it over as it is
+			if (autoRelease_ && a.death && a.deadFor > kCorpseHold) {
+				Release(i, "corpse held for 30 s: Skyrim's ragdoll takes it");
+				return;
+			}
+			if (autoRelease_ && a.keRising >= kRunawaySeconds) {
+				Release(i, "energy kept growing while down: Skyrim's ragdoll takes over");
 				return;
 			}
 			// the frame Skyrim switches to its ragdoll has no pose copy at all (and we only learn that a frame later):

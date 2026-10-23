@@ -151,6 +151,9 @@ namespace delirium
 			RE::hkbRagdollDriver*              driver{};
 			std::vector<BodyLink>              bodies;
 			float                              settled{}, noRagdoll{};  // seconds lying still in Skyrim's ragdoll state
+			float                              deadFor{};     // seconds since she died in Delirium (a corpse is let go after kCorpseHold)
+			float                              keLast{ -1.0f };  // her energy at the last once-a-second check
+			int                                keRising{};    // seconds in a row her energy grew while down (the simulation running away)
 			int                                drives{};
 			float                              maxSpeed{};    // fastest body steering since the last log line (m/s)
 			float                              blend{ 1.0f };  // 1 = Delirium's pose, 0 = Skyrim's animation
