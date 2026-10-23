@@ -350,6 +350,7 @@ namespace delirium
 		Blow b;
 		b.what = "stagger";
 		b.type = kBlowStagger;
+		b.stagger = true;
 		b.by = by;
 		b.dir = { d.x, d.y, 0.0f };
 		const float scale = hit ? DamageScale(a_target, last.damage) : 1.0f;

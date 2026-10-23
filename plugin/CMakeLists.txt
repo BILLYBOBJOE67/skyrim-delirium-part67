@@ -41,13 +41,15 @@ find_path(SIMPLEINI_INCLUDE_DIRS "SimpleIni.h")
 add_library(SkyrimDelirium SHARED src/host/main.cpp)
 add_library(SkyrimDeliriumCore SHARED
 	src/core/core.cpp src/core/engine.cpp src/core/hooks.cpp src/core/settings/table.cpp src/core/settings/load.cpp
+	src/core/settings/live.cpp src/core/settings/save.cpp src/core/menu/menu.cpp src/core/menu/reactions.cpp
 	src/core/reactions/hits.cpp src/core/reactions/rules.cpp src/core/reactions/react.cpp src/core/reactions/dying.cpp
 	src/core/body/takeover.cpp src/core/body/update.cpp src/core/body/calibrate.cpp src/core/body/drive.cpp
-	src/core/body/collision.cpp
+	src/core/body/collision.cpp src/core/body/show.cpp
 	src/core/debug/commands.cpp src/core/debug/trace.cpp src/core/debug/settings_dump.cpp)
 # offline settings check (tools\check-settings.ps1): built only when asked for
 add_executable(SettingsCheck EXCLUDE_FROM_ALL tests/settings_check.cpp
-	src/core/settings/table.cpp src/core/settings/load.cpp src/core/reactions/rules.cpp src/core/debug/settings_dump.cpp)
+	src/core/settings/table.cpp src/core/settings/load.cpp src/core/settings/live.cpp src/core/settings/save.cpp
+	src/core/reactions/rules.cpp src/core/debug/settings_dump.cpp)
 foreach(t SkyrimDelirium SkyrimDeliriumCore SettingsCheck)
 	target_include_directories(${t} PRIVATE src ${SIMPLEINI_INCLUDE_DIRS} "${DELIRIUM_DIR}/crates/delirium-sdk/include")
 	target_precompile_headers(${t} PRIVATE src/PCH.h)

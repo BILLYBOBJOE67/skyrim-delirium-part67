@@ -128,6 +128,18 @@ namespace delirium
 			const Rule el = ElementRule(b.element);
 			rule.layers.insert(rule.layers.end(), el.layers.begin(), el.layers.end());
 		}
+		// throw:m/s (the row or the element's): thrown along the blow as an explosion throws (fly rows, up by fFlyUp)
+		if (const float v = rule.Value("throw", 6.0f); rule.Has("throw") && v > 0.0f) {
+			const float fl = std::sqrt(b.dir.x * b.dir.x + b.dir.y * b.dir.y);
+			if (fl > 1e-3f) {
+				Blow t = b;
+				t.fly = { b.dir.x / fl * v, b.dir.y / fl * v, flyUp_ * v };
+				t.oomph = std::max(b.oomph, std::clamp(v / std::max(flyMax_, 1e-3f), 0.0f, 1.0f));
+				t.note = fmt::format("{}; thrown at {:.1f} m/s by [{}]", b.note, v, key);
+				Fly(a, a_actor, t);
+				return;
+			}
+		}
 		if (held && !rule.Has("collapse")) {
 			a.collapseAt = -1.0f;  // the row says she doesn't go down by herself: her time runs out on her feet
 		}
@@ -172,9 +184,13 @@ namespace delirium
 			r = dl.nm_agent_task_balance(a.agent, a.world, nullptr, sees ? look : nullptr);
 			how = "step";
 		}
-		// the push at most: past it one shove knocks her over limp before anything plays; the behaviours carry the rest
+		// the push at most: past it one shove knocks her over limp before anything plays; the behaviours carry the rest.
+		// A stagger has its own, so a blow that staggers can push harder than one that doesn't
 		const float want = rule.Value("push", 1.0f) *
-			(b.melee ? std::min(b.push, meleeMaxPush_) : b.shot ? std::min(b.push, hitMaxPush_) : b.push);
+			(b.stagger ? std::min(b.push, staggerMaxPush_) :
+			 b.melee   ? std::min(b.push, meleeMaxPush_) :
+			 b.shot    ? std::min(b.push, hitMaxPush_) :
+						 b.push);
 		if (r >= 0 && asShot && b.oomph > 0.0f) {
 			// a heavy hit: the head snaps with it, she stumbles back along it on the shot task's own steps
 			if (rule.Has("headsnap")) {

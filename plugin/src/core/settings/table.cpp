@@ -8,6 +8,7 @@ namespace delirium
 	{
 		using namespace settings;
 		constexpr unsigned P = kPreset;
+		constexpr unsigned D = kDetail;
 
 		Setting B(const char* a_sec, const char* a_key, bool& a_v, bool a_def, Tab a_tab, unsigned a_flags, const char* a_label, const char* a_help)
 		{
@@ -26,6 +27,18 @@ namespace delirium
 			const char* a_oldKey = nullptr)
 		{
 			return { a_sec, a_key, &a_v, 0.0, a_def, kAny, a_tab, a_flags, a_label, a_help, a_oldKey };
+		}
+		// a push that another setting caps (react.cpp: a projectile's push at most [Hits] fMaxPush, a blow's [Melee] fMaxPush)
+		Setting CappedBy(Setting a_s, const float& a_cap)
+		{
+			a_s.cappedBy = &a_cap;
+			return a_s;
+		}
+		// the low end of a min / max pair (the next row has AtLeast this one): the menu draws both as one range
+		Setting Pair(Setting a_s, const char* a_label)
+		{
+			a_s.rangeLabel = a_label;
+			return a_s;
 		}
 	}
 
@@ -65,8 +78,9 @@ namespace delirium
 
 			// [Arrows]
 			B("Arrows", "bShotReaction", arrows_, true, Reactions, P, "Arrows", "An arrow that hits a living NPC: Delirium's shot reaction (stumble, clutch the wound, catch herself or fall)"),
-			F("Arrows", "fPush", arrowPush_, 55.0, kAny, Strength, P, "Arrow push", "The arrow's push at the point it went in, N s (the test push is 80)"),
-			F("Arrows", "fWoundedBelow", wounded_, 0.2, Range(0.0, 1.0), Strength, P, "Wounded below", "Under this share of her health a hit takes her down instead of her catching herself"),
+			CappedBy(F("Arrows", "fPush", arrowPush_, 55.0, kAny, Strength, P, "Arrow push", "The arrow's push at the point it went in, N s (the test push is 80)"),
+				hitMaxPush_),
+			F("Arrows", "fWoundedBelow", wounded_, 0.2, Range(0.0, 1.0), Strength, P | D, "Wounded below", "Under this share of her health a hit takes her down instead of her catching herself"),
 
 			// [Spells]
 			B("Spells", "bShotReaction", spells_, true, Reactions, P, "Spells",
@@ -86,69 +100,68 @@ namespace delirium
 			// [Stagger]
 			B("Stagger", "bReplace", staggers_, true, Reactions, P, "Staggers",
 				"Every stagger (heavy blow, shield bash, Fus, magic, area staggers) is played by Delirium as a push away from the attacker"),
-			F("Stagger", "fPush", staggerPush_, 90.0, Min(0.0), Strength, P, "Stagger push", "Push for the strongest stagger (magnitude 1), N s"),
-			F("Stagger", "fMinShare", staggerMin_, 0.4, Range(0.0, 1.0), Strength, P, "Light stagger share", "A light stagger (magnitude 0) gets this share of the push"),
+			CappedBy(F("Stagger", "fPush", staggerPush_, 90.0, Min(0.0), Strength, P, "Stagger push",
+						 "Push for the strongest stagger (magnitude 1), N s. A melee blow that staggers takes the bigger of this and the boosted blow"),
+				staggerMaxPush_),
+			F("Stagger", "fMinShare", staggerMin_, 0.4, Range(0.0, 1.0), Strength, P | D, "Light stagger share", "A light stagger (magnitude 0) gets this share of the push"),
 			F("Stagger", "fHitBoost", staggerHitBoost_, 0.5, Min(0.0), Strength, P, "Staggering blow boost",
 				"A melee blow that staggers pushes as hard as the blow x (1 + this x the stagger's magnitude)"),
+			F("Stagger", "fMaxPush", staggerMaxPush_, 200.0, Min(0.0), Strength, P, "Stagger push at most",
+				"A stagger on her feet pushes at most this, N s, in place of the blow's or spell's cap (past ~200 she may fall)"),
 
 			// [Melee]
 			B("Melee", "bReact", melee_, true, Reactions, P, "Melee blows",
 				"While Delirium has her, every blow reacts: a light one flinches, a heavier one makes her step, past that she falls"),
-			F("Melee", "fPush", meleePush_, 50.0, Min(0.0), Strength, P, "Blow push", "Push for a plain blow (iron sword, 15 damage), N s"),
+			CappedBy(F("Melee", "fPush", meleePush_, 50.0, Min(0.0), Strength, P, "Blow push", "Push for a plain blow (iron sword, 15 damage), N s"),
+				meleeMaxPush_),
 			F("Melee", "fPower", meleePower_, 2.2, Min(0.0), Strength, P, "Power attack", "x the push for a power attack"),
 			F("Melee", "fBash", meleeBash_, 1.6, Min(0.0), Strength, P, "Shield bash", "x the push for a shield bash"),
-			F("Melee", "fSneak", meleeSneak_, 1.3, Min(0.0), Strength, P, "Sneak attack", "x the push for a sneak attack"),
-			F("Melee", "fBlocked", meleeBlocked_, 0.5, Min(0.0), Strength, P, "Blocked blow", "x the push for a blocked blow"),
-			F("Melee", "fWeightRef", meleeWeightRef_, 9.0, Min(0.1), Strength, P, "Weapon weight at 1x",
+			F("Melee", "fSneak", meleeSneak_, 1.3, Min(0.0), Strength, P | D, "Sneak attack", "x the push for a sneak attack"),
+			F("Melee", "fBlocked", meleeBlocked_, 0.5, Min(0.0), Strength, P | D, "Blocked blow", "x the push for a blocked blow"),
+			F("Melee", "fWeightRef", meleeWeightRef_, 9.0, Min(0.1), Strength, P | D, "Weapon weight at 1x",
 				"Heavier weapons push harder, by the square root of weight / this"),
-			F("Melee", "fHeftMin", meleeHeftMin_, 0.6, Min(0.0), Strength, P, "Lightest weapon", "The weight factor at least (dagger 0.6)"),
-			F("Melee", "fHeftMax", meleeHeftMax_, 1.7, AtLeast(meleeHeftMin_), Strength, P, "Heaviest weapon", "The weight factor at most (warhammer ~1.7)"),
-			F("Melee", "fSwing", meleeSwing_, 0.5, Min(0.0), Strength, P, "Swing sweep", "How much a swing's sideways sweep bends the push (0 = straight away from the attacker)"),
-			F("Melee", "fChop", meleeChop_, 0.35, Min(0.0), Strength, P, "Overhead chop", "An overhead chop pushes this much down"),
-			F("Melee", "fFlinchBelow", flinchBelow_, 55.0, Min(0.0), Strength, P, "Flinch below", "Blows pushing less than this flinch, harder ones step, N s (the 'light' rows)"),
-			F("Melee", "fOomphFrom", meleeOomphFrom_, 1.3, Min(0.0), Strength, P, "Heavy blow from", "A blow this many times a plain one's push starts to be heavy (oomph 0)"),
-			F("Melee", "fOomphTo", meleeOomphTo_, 4.0, AtLeast(meleeOomphFrom_, 0.1f), Strength, P, "Heavy blow full", "At this many times it is fully heavy (oomph 1)"),
-			F("Melee", "fKnockAt", meleeKnockAt_, 1.01, kAny, Strength, P, "Knocked down from", "From this oomph a blow takes her down (over 1: never)"),
-			F("Melee", "fHeadWhip", headWhip_, 0.2, Min(0.0), Strength, P, "Head whip", "Share of a heavy blow's push at the head too (the head snaps)"),
+			Pair(F("Melee", "fHeftMin", meleeHeftMin_, 0.6, Min(0.0), Strength, P | D, "Lightest weapon", "The weight factor at least (dagger 0.6)"), "Weapon weight factor"),
+			F("Melee", "fHeftMax", meleeHeftMax_, 1.7, AtLeast(meleeHeftMin_), Strength, P | D, "Heaviest weapon", "The weight factor at most (warhammer ~1.7)"),
+			F("Melee", "fSwing", meleeSwing_, 0.5, Min(0.0), Strength, P | D, "Swing sweep", "How much a swing's sideways sweep bends the push (0 = straight away from the attacker)"),
+			F("Melee", "fChop", meleeChop_, 0.35, Min(0.0), Strength, P | D, "Overhead chop", "An overhead chop pushes this much down"),
+			F("Melee", "fFlinchBelow", flinchBelow_, 55.0, Min(0.0), Strength, P | D, "Flinch below", "Blows pushing less than this flinch, harder ones step, N s (the 'light' rows)"),
+			Pair(F("Melee", "fOomphFrom", meleeOomphFrom_, 1.3, Min(0.0), Strength, P | D, "Heavy blow from", "A blow this many times a plain one's push starts to be heavy (oomph 0)"), "Heavy blow: starts / full"),
+			F("Melee", "fOomphTo", meleeOomphTo_, 4.0, AtLeast(meleeOomphFrom_, 0.1f), Strength, P | D, "Heavy blow full", "At this many times it is fully heavy (oomph 1)"),
+			F("Melee", "fHeadWhip", headWhip_, 0.2, Min(0.0), Strength, P | D, "Head whip", "Share of a heavy blow's push at the head too (the head snaps)"),
 			F("Melee", "fMaxPush", meleeMaxPush_, 160.0, Min(0.0), Strength, P, "Blow push at most",
 				"A blow pushes at most this, N s (past it the stagger and fall carry it: one big shove looks limp)"),
 
 			// [Explosions]
 			B("Explosions", "bPush", blasts_, true, Reactions, P, "Explosions", "An explosion (Fireball, runes, explosive arrows) pushes everyone it catches away from its centre"),
 			F("Explosions", "fPush", blastPush_, 90.0, Min(0.0), Strength, P, "Explosion push", "N s at the centre for a 15-damage explosion ([Hits] damage at 1x)"),
-			F("Explosions", "fFarShare", blastFar_, 0.4, Range(0.0, 1.0), Strength, P, "At the edge", "Share of the push at the explosion's edge"),
-			F("Explosions", "fUp", blastUp_, 0.25, Range(0.0, 1.0), Strength, P, "Upward", "The push's upward part (0 flat, 1 straight up)"),
+			F("Explosions", "fFarShare", blastFar_, 0.4, Range(0.0, 1.0), Strength, P | D, "At the edge", "Share of the push at the explosion's edge"),
+			F("Explosions", "fUp", blastUp_, 0.25, Range(0.0, 1.0), Strength, P | D, "Upward", "The push's upward part (0 flat, 1 straight up)"),
 			F("Explosions", "fFlySpeed", flySpeed_, 3.0, Min(0.0), Strength, P, "Thrown speed", "m/s she is thrown at, at the centre, for a 15-damage explosion"),
-			F("Explosions", "fFlyUp", flyUp_, 0.65, Min(0.0), Strength, P, "Thrown upward", "m/s up per m/s along"),
-			F("Explosions", "fFlyMin", flyMin_, 2.0, Min(0.0), Strength, P, "Thrown from", "Under this m/s she only takes the push, not thrown"),
-			F("Explosions", "fFlyMax", flyMax_, 9.0, AtLeast(flyMin_), Strength, P, "Thrown at most", "m/s at most"),
-			F("Explosions", "fHighFallAt", highFallAt_, 4.5, Min(0.0), Strength, P, "Thrown far from", "From this m/s she is thrown far ('far' rows: Delirium's high fall)"),
-			F("Explosions", "fTumble", tumble_, 10.0, Min(0.0), Strength, P, "Tumble", "N s at the head per m/s thrown: she tumbles head first"),
+			F("Explosions", "fFlyUp", flyUp_, 0.65, Min(0.0), Strength, P | D, "Thrown upward", "m/s up per m/s along"),
+			Pair(F("Explosions", "fFlyMin", flyMin_, 2.0, Min(0.0), Strength, P | D, "Thrown from", "Under this m/s she only takes the push, not thrown"), "Thrown between (m/s)"),
+			F("Explosions", "fFlyMax", flyMax_, 9.0, AtLeast(flyMin_), Strength, P | D, "Thrown at most", "m/s at most"),
+			F("Explosions", "fHighFallAt", highFallAt_, 4.5, Min(0.0), Strength, P | D, "Thrown far from", "From this m/s she is thrown far ('far' rows: Delirium's high fall)"),
+			F("Explosions", "fTumble", tumble_, 10.0, Min(0.0), Strength, P | D, "Tumble", "N s at the head per m/s thrown: she tumbles head first"),
 
 			// [Down]
 			F("Down", "fWritheTime", writheTime_, 1.0, Min(0.0), Timing, P, "Writhe", "Knocked down, she writhes this many s + the next x oomph (half for a blow)"),
-			F("Down", "fWritheAdd", writheAdd_, 1.2, Min(0.0), Timing, P, "Writhe per oomph", "Extra s of writhing for a harder hit"),
+			F("Down", "fWritheAdd", writheAdd_, 1.2, Min(0.0), Timing, P | D, "Writhe per oomph", "Extra s of writhing for a harder hit"),
 			F("Down", "fFoetalChance", foetalChance_, 0.3, Range(0.0, 1.0), Reactions, P, "Curl up chance", "Chance she curls up on the ground instead (when no down row decides)"),
 
 			// [Hits]
-			F("Hits", "fDamageRef", damageRef_, 15.0, Min(0.1), Strength, P, "Damage at 1x", "A hit of this much damage pushes at 1x (arrows, spells, melee, staggers)"),
-			F("Hits", "fExponent", damageExp_, 0.8, Range(0.0, 2.0), Strength, P, "Damage curve", "Twice the damage pushes 2^this as hard (1.74x at 0.8)"),
-			F("Hits", "fScaleMin", damageMin_, 0.4, Min(0.0), Strength, P, "Damage scale at least", "The damage scale at least"),
-			F("Hits", "fScaleMax", damageMax_, 3.0, AtLeast(damageMin_), Strength, P, "Damage scale at most", "The damage scale at most"),
-			F("Hits", "fOomphFrom", oomphFrom_, 1.0, kAny, Strength, P, "Hard hit from", "Damage scale where a hit starts jolting harder (oomph 0)"),
-			F("Hits", "fOomphTo", oomphTo_, 2.5, AtLeast(oomphFrom_, 0.01f), Strength, P, "Hard hit full", "Damage scale for the full jolt (oomph 1)"),
-			F("Hits", "fOomphSpin", oomphSpin_, 2.0, Min(0.0), Strength, P, "Hard hit twist", "The shot twists her x (1 + this x oomph)"),
-			F("Hits", "fOomphLean", oomphLean_, 0.9, Min(0.0), Strength, P, "Hard hit lean", "The shot leans her back 0.3 + this x oomph"),
-			F("Hits", "fOomphPush", oomphPush_, 1.0, Min(0.0), Strength, P, "Hard hit push", "The push x (1 + this x oomph)"),
-			F("Hits", "fReelAt", reelAt_, 0.3, kAny, Strength, P, "Reels from", "From this oomph she reels back on loose legs, then catches herself"),
-			F("Hits", "fFallAt", fallAt_, 1.01, kAny, Strength, P, "Reel falls from", "From this oomph the reel takes her down (over 1: only if she can't catch it)"),
-			F("Hits", "fReelTime", reelTime_, 0.8, Min(0.1), Timing, P, "Reel", "She reels this many s + the next x oomph"),
-			F("Hits", "fReelTimeAdd", reelTimeAdd_, 1.6, Min(0.0), Timing, P, "Reel per oomph", "Extra s of reeling for a harder hit"),
+			F("Hits", "fDamageRef", damageRef_, 15.0, Min(0.1), Strength, P | D, "Damage at 1x", "A hit of this much damage pushes at 1x (arrows, spells, melee, staggers)"),
+			F("Hits", "fExponent", damageExp_, 0.8, Range(0.0, 2.0), Strength, P | D, "Damage curve", "Twice the damage pushes 2^this as hard (1.74x at 0.8)"),
+			Pair(F("Hits", "fScaleMin", damageMin_, 0.4, Min(0.0), Strength, P | D, "Damage scale at least", "The damage scale at least"), "Damage scale range"),
+			F("Hits", "fScaleMax", damageMax_, 3.0, AtLeast(damageMin_), Strength, P | D, "Damage scale at most", "The damage scale at most"),
+			Pair(F("Hits", "fOomphFrom", oomphFrom_, 1.0, kAny, Strength, P | D, "Hard hit from", "Damage scale where a hit starts jolting harder (oomph 0)"), "Hard hit: starts / full"),
+			F("Hits", "fOomphTo", oomphTo_, 2.5, AtLeast(oomphFrom_, 0.01f), Strength, P | D, "Hard hit full", "Damage scale for the full jolt (oomph 1)"),
+			F("Hits", "fOomphSpin", oomphSpin_, 2.0, Min(0.0), Strength, P | D, "Hard hit twist", "The shot twists her x (1 + this x oomph)"),
+			F("Hits", "fOomphPush", oomphPush_, 1.0, Min(0.0), Strength, P | D, "Hard hit push", "The push x (1 + this x oomph)"),
 			F("Hits", "fMaxPush", hitMaxPush_, 150.0, Min(0.0), Strength, P, "Hit push at most",
 				"A spell's or arrow's push at most, N s (past it one shove knocks her over limp)"),
-			F("Hits", "fPelvisShare", pelvisShare_, 0.0, Range(0.0, 1.0), Strength, P, "At the pelvis",
+			F("Hits", "fPelvisShare", pelvisShare_, 0.0, Range(0.0, 1.0), Strength, P | D, "At the pelvis",
 				"Share of a standing hit's push at the pelvis instead of the part hit: catch steps instead of folding at the waist"),
-			I("Hits", "iMaxSteps", maxSteps_, 10, Range(0.0, 100.0), Strength, P, "Catch steps", "Most catch steps a hit takes before she stops stepping (Delirium's default 6)"),
+			I("Hits", "iMaxSteps", maxSteps_, 10, Range(0.0, 100.0), Strength, P | D, "Catch steps", "Most catch steps a hit takes before she stops stepping (Delirium's default 6)"),
 
 			// [Collision]
 			B("Collision", "bWorldCollision", collision_, true, Advanced, kNone, "World collision",
@@ -163,17 +176,17 @@ namespace delirium
 			B("Deaths", "bNoKillCams", noKillCams_, true, Reactions, P | kRestart, "No kill cams", "Kill cams off"),
 			F("Deaths", "fDyingTime", dyingTime_, 3.0, Range(0.0, 10.0), Timing, P, "Dying on her feet",
 				"Seconds a killed NPC may die on her feet in Delirium before the death goes through (0 = die at once)"),
-			F("Deaths", "fCollapseAfterMin", collapseMin_, 0.8, Range(0.0, 10.0), Timing, P, "Collapses after (min)", "Dying on her feet: s she fights to stay up, at least"),
+			Pair(F("Deaths", "fCollapseAfterMin", collapseMin_, 0.8, Range(0.0, 10.0), Timing, P, "Collapses after (min)", "Dying on her feet: s she fights to stay up, at least"), "Collapses after (s)"),
 			F("Deaths", "fCollapseAfterMax", collapseMax_, 1.6, AtLeast(collapseMin_), Timing, P, "Collapses after (max)", "And at most"),
 			F("Deaths", "fDyingHealth", dyingHealth_, 70.0, Range(0.0, 99.0), Strength, P, "Killing blow health",
 				"The killing blow as Delirium's shot at this health (0 = a limp flop, under 100 = wounded, falls)"),
-			F("Deaths", "fLimpAfterMin", limpMin_, 1.8, Min(0.2), Timing, P, "Limp after (min)", "Seconds until the corpse goes limp, at least"),
+			Pair(F("Deaths", "fLimpAfterMin", limpMin_, 1.8, Min(0.2), Timing, P, "Limp after (min)", "Seconds until the corpse goes limp, at least"), "Limp after (s)"),
 			F("Deaths", "fLimpAfterMax", limpMax_, 3.0, AtLeast(limpMin_), Timing, P, "Limp after (max)", "And at most"),
 			F("Deaths", "fWritheChance", dyingWrithe_, 0.5, Range(0.0, 1.0), Reactions, P, "Death writhe chance", "Chance of a weak writhe on the ground first"),
 			F("Deaths", "fCatchFallChance", dyingCatch_, 0.5, Range(0.0, 1.0), Reactions, P, "Break the fall chance", "Chance the arms go out to break the fall"),
 			F("Deaths", "fDeathPush", deathPush_, 1.5, Range(0.0, 6.0), Strength, P, "Death push", "m/s away from the killer as she dies (in place of Skyrim's lunge toward him)"),
-			F("Deaths", "fDeathMaxSpeed", deathMaxSpeed_, 6.0, Min(1.0), Strength, P, "Death speed cap", "m/s cap on any body as she dies (Skyrim's death throws limbs at 17 m/s)"),
-			F("Deaths", "fShotTime", dyingReact_, 1.2, Range(0.0, 5.0), Timing, P, "Dying shot", "Seconds the dying shot (reaching for the wound, breaking the fall) plays before a writhe"),
+			F("Deaths", "fDeathMaxSpeed", deathMaxSpeed_, 6.0, Min(1.0), Strength, P | D, "Death speed cap", "m/s cap on any body as she dies (Skyrim's death throws limbs at 17 m/s)"),
+			F("Deaths", "fShotTime", dyingReact_, 1.2, Range(0.0, 5.0), Timing, P | D, "Dying shot", "Seconds the dying shot (reaching for the wound, breaking the fall) plays before a writhe"),
 
 			// [Shouts]
 			F("Shouts", "fThrowFrom", shoutThrowFrom_, 0.6, Range(0.0, 1.01), Strength, P, "Shout throws from",
@@ -181,7 +194,7 @@ namespace delirium
 			F("Shouts", "fFlySpeed", shoutFly_, 9.0, Min(0.0), Strength, P, "Shout throw speed", "m/s she is thrown at, at magnitude 1"),
 
 			// [Reactions] (the rows themselves are read by LoadReactions)
-			F("Reactions", "fHeavyOomph", heavyOomph_, 0.5, Range(0.0, 1.01), Reactions, P, "Heavy from", "From this oomph a blow picks the 'heavy' rows"),
+			F("Reactions", "fHeavyOomph", heavyOomph_, 0.5, Range(0.0, 1.01), Reactions, P | D, "Heavy from", "From this oomph a blow picks the 'heavy' rows"),
 		};
 	}
 

@@ -1,5 +1,6 @@
 // The command file (tools\hotreload.ps1 -Cmd) and the test keys (F7 push, F2 release).
 #include "shared.h"
+#include "settings/table.h"
 
 namespace delirium
 {
@@ -14,7 +15,12 @@ namespace delirium
 	//   fus <hex formid> [force] Skyrim's own push from the player (as Fus Ro Dah: force 15), no Delirium involved
 	//   spawn <hex base> [dist]  place that NPC / leveled NPC in front of the player (3DECD = a melee bandit)
 	//   near                     log the NPCs near the player
+	//   nodes <hex formid>       log every node of that NPC's 3D with its address (Cheat Engine breakpoints)
+	//   show on|off              her meshes read the finished pose (default) / the live bones (before/after check)
 	//   status                   log what is active
+	//   settings reload|save|defaults   SkyrimDelirium.ini again / the live settings into it / every preset setting at default
+	//   preset load|save <name>  Presets\<name>.ini
+	//   set <Section.key> <value> one setting, as the menu sets it (logged old -> new)
 
 	void Engine::Command(std::string_view a_line)
 	{
@@ -157,6 +163,27 @@ namespace delirium
 							a->GetPosition().GetDistance(player->GetPosition()), a->IsInRagdollState(), a->IsDead());
 					}
 				}
+			} else if (w[0] == "show" && w.size() >= 2) {
+				// her meshes read the finished pose (on, the default) or the live bones (off: as before body/show.cpp)
+				show_ = w[1] != "off";
+				logger::info("show: her meshes read {}", show_ ? "the finished pose" : "the live bones");
+			} else if (w[0] == "nodes" && w.size() >= 2) {
+				// every node of that NPC's 3D with its address (for Cheat Engine write breakpoints on world, +0x7C)
+				if (auto* a = actor(1); a && a->Get3D(false)) {
+					auto walk = [](auto& self, RE::NiAVObject* o, int depth) -> void {
+						const auto& t = o->world.translate;
+						logger::info("nodes: {:>2} {:016X} {}'{}' ({:.0f} {:.0f} {:.0f}){}", depth, reinterpret_cast<std::uintptr_t>(o), std::string(depth, ' '),
+							o->name.c_str(), t.x, t.y, t.z, o->AsGeometry() ? " geometry" : "");
+						if (auto* n = o->AsNode()) {
+							for (auto& c : n->GetChildren()) {
+								if (c) {
+									self(self, c.get(), depth + 1);
+								}
+							}
+						}
+					};
+					walk(walk, a->Get3D(false), 0);
+				}
 			} else if (w[0] == "status") {
 				std::scoped_lock l(lock_);
 				logger::info("status: ready {}, {} active", ready_, active_.size());
@@ -164,6 +191,43 @@ namespace delirium
 					auto act = a->actor.get();
 					logger::info("  {:08X}: age {:.1f} s, knocked {}, in ragdoll {}", act ? act->GetFormID() : 0, a->age, a->knockQueued,
 						act && act->IsInRagdollState());
+				}
+			} else if (w[0] == "settings" && w.size() >= 2) {
+				std::string msg;
+				if (w[1] == "reload") {
+					ReloadSettings("read again (command)");
+				} else if (w[1] == "save") {
+					SaveIni(msg);
+				} else if (w[1] == "defaults") {
+					DefaultSettings("the defaults (command)");
+				}
+			} else if (w[0] == "preset" && w.size() >= 3) {
+				std::string name = w[2], msg;
+				for (std::size_t k = 3; k < w.size(); ++k) {
+					name += " " + w[k];
+				}
+				if (w[1] == "load") {
+					LoadPreset(name, msg);
+				} else if (w[1] == "save") {
+					SavePreset(name, msg);
+				}
+			} else if (w[0] == "set" && w.size() >= 3) {
+				bool found = false;
+				for (const auto& row : SettingsTable()) {
+					if (_stricmp(settings::Name(row).c_str(), w[1].c_str()) != 0) {
+						continue;
+					}
+					found = true;
+					// the value through an ini line, so it reads exactly as the ini would read it
+					CSimpleIniA one;
+					const std::string line = std::format("[{}]\n{}={}\n", row.section, row.key, a_line.substr(a_line.find(w[2], a_line.find(w[1]) + w[1].size())));
+					one.LoadData(line.data(), line.size());
+					const auto was = settings::Text(row);
+					SetSetting(row, settings::Parse(one, row));
+					NoteEdit(settings::Name(row), was, settings::Text(row));
+				}
+				if (!found) {
+					logger::warn("set: no setting {}", w[1]);
 				}
 			} else {
 				logger::warn("command: unknown '{}'", w[0]);

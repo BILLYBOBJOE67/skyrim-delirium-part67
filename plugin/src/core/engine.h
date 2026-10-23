@@ -5,11 +5,17 @@
 
 #include <SimpleIni.h>
 
+#include <map>
+#include <span>
+#include <variant>
+
 namespace delirium
 {
 	namespace settings
 	{
-		struct Setting;
+		struct Setting;  // settings/table.h
+		// a setting's value itself (whole numbers of any width as long long)
+		using Any = std::variant<bool, long long, float, std::string>;
 	}
 
 	struct V3
@@ -37,8 +43,44 @@ namespace delirium
 		static Engine& Get();
 
 		void LoadSettings();  // SkyrimDelirium.ini, through the settings table (core/settings/)
+		void ReadSettings(const CSimpleIniA& a_ini);  // every setting and reaction row from an ini (unknown keys warned)
+		void LogSettings() const;                     // the start-up summary of the settings
 		[[nodiscard]] std::string DumpSettings() const;  // every setting and reaction row, one per line (the settings check)
 		std::vector<settings::Setting> SettingsTable();  // every setting: its ini key, default, limits, menu name and help
+
+		// ---- settings while the game runs (core/settings/live.cpp): every change is logged as Section.key old -> new.
+		// Writers take lock_ (the reaction rows are only read under it); the numbers are read as they are.
+		struct SettingsSnap
+		{
+			std::vector<std::string>           values;  // each table row's value as the ini writes it
+			std::map<std::string, std::string> rows;    // the reaction rows' texts
+			bool operator==(const SettingsSnap&) const = default;
+		};
+		SettingsSnap Snapshot();
+		void ReloadSettings(const char* a_why);  // SkyrimDelirium.ini again
+		void SettingsFileChanged();              // the host saw the ini change: reloaded, unless it was our own save
+		// one setting (the menu): limited, and settings that must stay at least it follow. True if it changed
+		bool SetSetting(const settings::Setting& a_s, const settings::Any& a_v);
+		void SetRow(const std::string& a_key, const std::string& a_text);  // a reaction row (added if new)
+		void ResetRow(const std::string& a_key);  // back to the built-in row, or gone if it isn't one
+		void DefaultSettings(const char* a_why);  // every preset setting and reaction row at its default
+		void NoteEdit(const std::string& a_name, const std::string& a_was, const std::string& a_now);  // the menu's edit, done
+		[[nodiscard]] bool Unsaved() const { return unsaved_; }  // the live settings differ from SkyrimDelirium.ini's
+		[[nodiscard]] const std::string& SaveError() const { return saveError_; }  // the last save's failure, else empty
+		void RevertSession();  // back to the settings the game started with (saved)
+		std::vector<std::pair<std::string, std::string>> Rows();  // every reaction row and its text, sorted
+		static bool IsBuiltInRow(const std::string& a_key, const char** a_text = nullptr);
+		// a row's words as the engine reads them: name, number (NaN: none given), the first one its base
+		static std::vector<std::pair<std::string, float>> RowWords(std::string_view a_text) { return ParseRule(a_text).layers; }
+		void MenuReactionsHelp();  // the Help page's part on the reaction table (core/menu/reactions.cpp)
+		// ---- saving (core/settings/save.cpp): only the lines whose value differs are rewritten, comments stay
+		bool SaveIni(std::string& a_msg);
+		bool SavePreset(const std::string& a_name, std::string& a_msg);  // Presets\<name>.ini: what differs from the defaults
+		bool LoadPreset(const std::string& a_name, std::string& a_msg);  // the defaults, then the preset's values
+		static std::vector<std::string> PresetNames();
+		void ApplyChanged(std::span<const std::string> a_names);  // engine.cpp: what start-up applied once, again
+		// ---- the in-game menu (core/menu/): SKSE Menu Framework pages, drawn through the host
+		void Menu(int a_page);
 		bool Init();  // kDataLoaded: Delirium's DLL, the character file, our body and rig
 		void OnKey(std::uint32_t a_key, RE::Actor* a_target = nullptr);  // a_target: else the crosshair's / console's NPC
 		void Command(std::string_view a_line);  // main thread: a line of the command file (see Command in engine.cpp)
@@ -127,6 +169,11 @@ namespace delirium
 			float                              age{}, calm{};
 			float                              sincePush{};  // seconds since the last push (no calm-out before 1 s)
 			int                                calls{}, poses{};  // animation updates / pose copies since the last log line
+			// every node of her 3D as we drew it last frame: put back as previousWorld after WriteBones (see KeepPrevious)
+			std::unordered_map<RE::NiAVObject*, RE::NiTransform> drawnWorld;
+			// body/show.cpp: her bones as the renderer reads them (the finished pose), and the skins moved over to them
+			std::unordered_map<RE::NiAVObject*, RE::NiTransform> shown;
+			std::vector<RE::NiPointer<RE::NiSkinInstance>>       shownSkins;
 			float                              dtSum{};
 			float                              scale{ 1.0f };  // the NPC's skeleton scale
 			bool                               logged{};
@@ -253,6 +300,7 @@ namespace delirium
 			bool         join{};         // a reaction started this moment (a direct hit, then its blast): only the push adds
 			V3           fly{};          // m/s: thrown (an explosion), alive in the air; zero: on her feet
 			bool         melee{};        // a weapon blow (or the stagger it makes): its oomph is from how much harder than a plain blow
+			bool         stagger{};      // Skyrim staggered her with it: on her feet it pushes up to [Stagger] fMaxPush
 			int          type{ 0 };      // BlowType: its row in the reaction table
 			bool         inherited{};    // fly: she already moves (Skyrim's own knock, taken over): no velocity or tumble of ours
 		};
@@ -270,6 +318,18 @@ namespace delirium
 		};
 		static Rule ParseRule(std::string_view a_text);
 		void        LoadReactions(const CSimpleIniA& a_ini);  // the built-in rows, then the ini's [Reactions] rows over them
+		static std::span<const std::pair<const char*, const char*>> BuiltInRows();
+		static bool IsRowKey(const char* a_key);  // a [Reactions] key that is a row (not a setting such as fHeavyOomph)
+		static std::vector<std::string> UnknownBehaviours(const Rule& a_rule);
+		void        LogChanges(const SettingsSnap& a_before, const char* a_why);  // what differs from a_before, then ApplyChanged
+		void        LoadPresetIni(const CSimpleIniA& a_ini);  // preset settings from a_ini (absent: default), rows built in + a_ini's
+		void        MenuReactions();      // core/menu/reactions.cpp
+		SettingsSnap                    saved_;   // the settings as SkyrimDelirium.ini gives them (last load or save)
+		std::filesystem::file_time_type savedTime_{};  // the ini's time after our own save
+		bool                            unsaved_{};
+		std::string                     startText_;  // SkyrimDelirium.ini as the game started with it (RevertSession)
+		std::string                     saveError_;
+		void                            AutoSave();  // every change is kept: SkyrimDelirium.ini written when it differs
 		const Rule& PickRule(const char* a_phase, const Blow& a_blow, bool a_lethal, std::string& a_key) const;
 		Rule        ElementRule(int a_element) const;  // the element's layers ([Reactions] fire / shock / frost)
 		const Rule* FindRule(std::initializer_list<std::string> a_keys, std::string& a_key) const;  // the first of these rows there is
@@ -313,6 +373,9 @@ namespace delirium
 		float PartsFromBones(const Active& a, std::array<V3, 21>& pos, std::array<Q, 21>& rot, std::string* detail) const;
 		void  SetZeroPose(Active& a, const std::array<V3, 21>& pos, const std::array<Q, 21>& rot);
 		void WriteBones(Active& a_act);
+		// body/show.cpp: her meshes read the finished pose (Active::shown), not the bones while they are written
+		void Show(Active& a, RE::NiAVObject* a_root);
+		void Unshow(Active& a);
 		bool SmoothRoot(Active& a, RE::Actor* a_actor);  // ragdolled: the top node turns no faster than cloth physics allows (true: moved)
 		void AddWorld(Active& a, RE::Actor* a_actor, const RE::NiPoint3& a_center, bool a_quiet);  // Skyrim's collision around a_center
 		void Calibrate(Active& a, RE::Actor* a_actor);
@@ -349,6 +412,7 @@ namespace delirium
 		bool          takeOver_{ true };  // [Ragdoll] bTakeOver
 		float         gain_{ 1.0f };      // [Ragdoll] fTorqueGain
 		float         damp_{ 0.0f };      // [Ragdoll] fJointDamping: share of a joint's spin its muscles take out per step
+		bool          show_{ true };      // her meshes read the finished pose (body/show.cpp); `show off` for a before/after check
 		float         friction_{ 0.0f };  // [Ragdoll] fJointFriction: Skyrim's joint friction while Delirium drives (1 = untouched)
 		bool          matchMass_{ true }; // [Ragdoll] bMatchMass: Skyrim's bodies weigh what Delirium's parts do while it drives
 		bool          matchContact_{ true }; // [Ragdoll] bMatchContact: and grip and bounce as Delirium's parts do
@@ -389,12 +453,9 @@ namespace delirium
 		float         damageMin_{ 0.4f }, damageMax_{ 3.0f };  // [Hits] fScaleMin / fScaleMax
 		float         oomphFrom_{ 1.0f }, oomphTo_{ 2.5f };  // [Hits] fOomphFrom / fOomphTo: damage scale for oomph 0 / 1
 		float         oomphSpin_{ 2.0f };      // [Hits] fOomphSpin: the shot's twist x(1 + this x oomph)
-		float         oomphLean_{ 0.9f };      // [Hits] fOomphLean: the shot's lean back 0.3 + this x oomph
 		float         oomphPush_{ 1.0f };      // [Hits] fOomphPush: the push x(1 + this x oomph)
-		float         reelAt_{ 0.3f };         // [Hits] fReelAt: from this oomph she reels back (Delirium's staggerFall)
-		float         fallAt_{ 1.01f };        // [Hits] fFallAt: from this oomph the reel takes her down (over 1: never forced, she falls only if she can't catch it)
-		float         reelTime_{ 0.8f }, reelTimeAdd_{ 1.6f };  // [Hits] fReelTime + fReelTimeAdd x oomph: s she reels
 		float         staggerHitBoost_{ 0.5f };  // [Stagger] fHitBoost: a blow that staggers pushes x(1 + this x magnitude)
+		float         staggerMaxPush_{ 200.0f };  // [Stagger] fMaxPush: a stagger's push at most on her feet (in place of the blow's or spell's cap)
 		bool          melee_{ true };           // [Melee] bReact: blows push her while Delirium has her
 		bool          blasts_{ true };          // [Explosions] bPush: an explosion pushes everyone it catches
 		float         blastPush_{ 90.0f };      // [Explosions] fPush: N s at its centre for fDamageRef damage
@@ -406,7 +467,6 @@ namespace delirium
 		float         writheTime_{ 1.0f }, writheAdd_{ 1.2f };  // [Down] fWritheTime + fWritheAdd x oomph: s she writhes on the ground
 		float         foetalChance_{ 0.3f };    // [Down] fFoetalChance: she curls up instead
 		float         meleeOomphFrom_{ 1.3f }, meleeOomphTo_{ 4.0f };  // [Melee] fOomphFrom / fOomphTo: x a plain blow's push for oomph 0 / 1
-		float         meleeKnockAt_{ 1.01f };   // [Melee] fKnockAt: from this oomph the blow takes her down
 		float         headWhip_{ 0.2f };        // [Melee] fHeadWhip: share of the push at the head too
 		float         hitMaxPush_{ 150.0f };    // [Hits] fMaxPush: a projectile's push at most (past it, the behaviours carry it)
 		float         pelvisShare_{ 0.0f };     // [Hits] fPelvisShare: share of a standing hit's push at the pelvis (catch steps, not folding)

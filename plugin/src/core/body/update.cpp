@@ -28,6 +28,36 @@ namespace delirium
 		}
 	}
 
+	namespace
+	{
+		// Each node's previousWorld is what TAA, the upscaler and motion blur take as last frame. UpdateWorldData sets it to
+		// the world it replaces, and in WriteBones that is Skyrim's fresh animated pose, never drawn: motion vectors would
+		// point from a pose that was never on screen (in a stagger, far from ours).
+		// Put back the world each node was drawn with last frame, then remember this frame's.
+		void KeepPrevious(RE::NiAVObject* a_root, std::unordered_map<RE::NiAVObject*, RE::NiTransform>& a_drawn)
+		{
+			std::unordered_map<RE::NiAVObject*, RE::NiTransform> now;
+			now.reserve(a_drawn.size() + 16);
+			std::vector<RE::NiAVObject*> stack{ a_root };
+			while (!stack.empty()) {
+				auto* n = stack.back();
+				stack.pop_back();
+				if (const auto it = a_drawn.find(n); it != a_drawn.end()) {
+					n->previousWorld = it->second;
+				}
+				now.emplace(n, n->world);
+				if (auto* node = n->AsNode()) {
+					for (auto& c : node->GetChildren()) {
+						if (c) {
+							stack.push_back(c.get());
+						}
+					}
+				}
+			}
+			a_drawn = std::move(now);
+		}
+	}
+
 	void Engine::AfterRootMove(RE::Actor* a_actor)
 	{
 		std::scoped_lock l(lock_);
@@ -757,6 +787,7 @@ namespace delirium
 			if (TorqueMode(a)) {
 				// Skyrim's ragdoll is the body: Skyrim poses the bones from it. Not yet through F7's lead-in: Skyrim
 				// builds its ragdoll from the animation, not from our pose, and the lead-in first pulls it onto ours
+				Unshow(a);  // Skyrim poses the bones: her meshes read them again
 				return;
 			}
 			std::array<V3, 21> pos;
@@ -816,6 +847,12 @@ namespace delirium
 			a.limbBlend = a.calibrated ? LeadShare(a) : 1.0f;
 			WriteBones(a);
 			a.limbBlend = 1.0f;
+			KeepPrevious(a_actor->Get3D(false), a.drawnWorld);
+			if (show_) {
+				Show(a, a_actor->Get3D(false));  // her meshes draw this finished pose (body/show.cpp)
+			} else {
+				Unshow(a);
+			}
 			for (std::size_t i = 0; i < 21; ++i) {
 				if (a.ref[i]) {
 					a.written[i] = a.ref[i]->world;

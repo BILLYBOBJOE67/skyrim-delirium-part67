@@ -1,6 +1,7 @@
 # Builds the plugin and lays the mod out in an MO2 mod folder:
 #   SKSE\Plugins\SkyrimDelirium.dll, SkyrimDelirium.ini
 #   SKSE\Plugins\SkyrimDelirium\delirium_physics.dll, skyrim_character.json, skyrim_character_rig.txt
+#   SKSE\Plugins\SkyrimDelirium\Presets\*.ini (the shipped presets)
 # The character and rig are our own (plugin\data, made by fit-test\examples\make_character.rs).
 param(
 	[string]$Mod = '',
@@ -39,6 +40,10 @@ foreach ($c in $copy) {
 	$dst = Join-Path $c[1] (Split-Path $c[0] -Leaf)
 	if ((Get-FileHash $c[0]).Hash -ne (Get-FileHash $dst).Hash) { Write-Output "HASH MISMATCH: $dst"; exit 1 }
 }
+# the shipped presets (plugin\data\Presets): replaced by each install; presets saved in game under other names stay
+$presets = Join-Path $data 'Presets'
+New-Item -ItemType Directory -Force $presets | Out-Null
+Copy-Item "$root\plugin\data\Presets\*.ini" $presets -Force
 # the ini: only when missing, so settings changed in the mod folder survive
 $ini = Join-Path $plugins 'SkyrimDelirium.ini'
 if (-not (Test-Path $ini)) { Copy-Item "$root\plugin\data\SkyrimDelirium.ini" $ini }

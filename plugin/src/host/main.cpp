@@ -1,4 +1,8 @@
 #include "core_api.h"
+#pragma warning(push)
+#pragma warning(disable : 4099 5054)  // the framework's own header
+#include "third_party/SKSEMenuFramework.h"
+#pragma warning(pop)
 
 #include <fstream>
 #include <thread>
@@ -111,11 +115,25 @@ namespace
 
 		// Data/../My Games/.../SKSE/SkyrimDelirium.cmd: lines for the core (see Engine::Command), or "reload".
 		// Tools write it under another name and rename it, so it is never read half written.
+		// also SkyrimDelirium.ini: edited while the game runs, the core reads it again (its own saves it skips)
 		void Watch()
 		{
-			const auto path = *SKSE::log::log_directory() / "SkyrimDelirium.cmd";
-			for (;;) {
+			const auto                      path = *SKSE::log::log_directory() / "SkyrimDelirium.cmd";
+			const std::filesystem::path     ini = "Data/SKSE/Plugins/SkyrimDelirium.ini";
+			std::error_code                 iec;
+			std::filesystem::file_time_type iniTime = std::filesystem::last_write_time(ini, iec);
+			for (unsigned tick = 0;; ++tick) {
 				Sleep(100);
+				if (tick % 5 == 0) {
+					if (const auto t = std::filesystem::last_write_time(ini, iec); !iec && t != iniTime) {
+						iniTime = t;
+						SKSE::GetTaskInterface()->AddTask([]() {
+							if (Use u; u) {
+								u->settingsFileChanged();
+							}
+						});
+					}
+				}
 				std::vector<std::string> lines;
 				{
 					std::ifstream in(path);
@@ -445,9 +463,45 @@ namespace
 		}
 	};
 
+	// ---- the in-game menu (SKSE Menu Framework, when installed: F1, Mod Control Panel, Skyrim Delirium). The core draws
+	// the pages, so they change with a hot reload; these callbacks stay registered and point into the host.
+	namespace menu
+	{
+		template <int P>
+		void __stdcall Page()
+		{
+			if (core::Use c; c) {
+				c->menu(P);
+			} else {
+				ImGuiMCP::TextUnformatted("Skyrim Delirium's core is not loaded (see SkyrimDelirium.log).");
+			}
+		}
+
+		void Register()
+		{
+			if (!GetModuleHandleW(L"SKSEMenuFramework")) {
+				logger::info("menu: SKSE Menu Framework not installed (the settings are in SkyrimDelirium.ini)");
+				return;
+			}
+			// the page numbers are Engine::Menu's
+			SKSEMenuFramework::SetSection("Skyrim Delirium");
+			SKSEMenuFramework::AddSectionItem("Reactions", Page<0>);
+			SKSEMenuFramework::AddSectionItem("Strength", Page<1>);
+			SKSEMenuFramework::AddSectionItem("Difficulty", Page<2>);
+			SKSEMenuFramework::AddSectionItem("Timing", Page<3>);
+			SKSEMenuFramework::AddSectionItem("Advanced", Page<4>);
+			SKSEMenuFramework::AddSectionItem("Presets", Page<5>);
+			SKSEMenuFramework::AddSectionItem("Help", Page<6>);
+			logger::info("menu: in SKSE Menu Framework, section Skyrim Delirium");
+		}
+	}
+
 	void OnMessage(SKSE::MessagingInterface::Message* a_msg)
 	{
 		switch (a_msg->type) {
+		case SKSE::MessagingInterface::kPostLoad:
+			menu::Register();
+			break;
 		case SKSE::MessagingInterface::kDataLoaded:
 			{
 				core::dataLoaded = true;

@@ -5,7 +5,7 @@
 // swapped while the game runs ("reload" in the command file). Bump kCoreApi when this struct changes.
 namespace delirium
 {
-	inline constexpr std::uint32_t kCoreApi = 4;
+	inline constexpr std::uint32_t kCoreApi = 5;
 
 	struct CoreApi
 	{
@@ -31,6 +31,10 @@ namespace delirium
 		void (*onStagger)(RE::Actor* a_target, float a_magnitude, RE::Actor* a_source, bool a_started);
 		// Character::KillImpl (vtable 0x10E), before Skyrim's: true holds the death back (the core kills her later itself)
 		bool (*onKill)(RE::Actor* a_actor, RE::Actor* a_attacker, float a_damage, bool a_sendEvent, bool a_ragdollInstant);
+		// SKSE Menu Framework's render thread: draw one page of the menu (the host registers the pages, see host/main.cpp)
+		void (*menu)(int a_page);
+		// main thread: SkyrimDelirium.ini's write time changed (the core reads it again unless the change is its own save)
+		void (*settingsFileChanged)();
 	};
 
 	using GetCoreApi = const CoreApi* (*)();

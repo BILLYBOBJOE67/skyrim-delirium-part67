@@ -190,6 +190,22 @@ namespace delirium
 		}
 	}
 
+	void Engine::ApplyChanged(std::span<const std::string> a_names)
+	{
+		// most settings are read as they are used; these were applied once at start-up
+		const auto has = [&](std::string_view n) { return std::find(a_names.begin(), a_names.end(), n) != a_names.end(); };
+		if (!ready_) {
+			return;
+		}
+		std::scoped_lock l(lock_);  // the menu calls this on the render thread
+		if (has("Hits.iMaxSteps")) {
+			dl.nm_set_task_param("NMShot_Standing", "*", "shotMaxSteps", static_cast<float>(maxSteps_));
+		}
+		if ((has("Deaths.bNoKillMoves") && noKillMoves_) || (has("Deaths.bNoKillCams") && noKillCams_)) {
+			NoKillMoves();  // turned off again only by a new game start (a save keeps the KillMove global)
+		}
+	}
+
 	void Engine::ReleaseAll(const char* a_why)
 	{
 		KillHeld(a_why);

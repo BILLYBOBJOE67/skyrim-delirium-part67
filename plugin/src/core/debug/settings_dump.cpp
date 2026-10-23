@@ -65,6 +65,7 @@ namespace delirium
 		f("Stagger.fPush", staggerPush_);
 		f("Stagger.fMinShare", staggerMin_);
 		f("Stagger.fHitBoost", staggerHitBoost_);
+		f("Stagger.fMaxPush", staggerMaxPush_);
 		f("Hits.fDamageRef", damageRef_);
 		f("Hits.fExponent", damageExp_);
 		f("Hits.fScaleMin", damageMin_);
@@ -72,12 +73,7 @@ namespace delirium
 		f("Hits.fOomphFrom", oomphFrom_);
 		f("Hits.fOomphTo", oomphTo_);
 		f("Hits.fOomphSpin", oomphSpin_);
-		f("Hits.fOomphLean", oomphLean_);
 		f("Hits.fOomphPush", oomphPush_);
-		f("Hits.fReelAt", reelAt_);
-		f("Hits.fFallAt", fallAt_);
-		f("Hits.fReelTime", reelTime_);
-		f("Hits.fReelTimeAdd", reelTimeAdd_);
 		f("Hits.fMaxPush", hitMaxPush_);
 		f("Hits.fPelvisShare", pelvisShare_);
 		i("Hits.iMaxSteps", maxSteps_);
@@ -95,7 +91,6 @@ namespace delirium
 		f("Melee.fFlinchBelow", flinchBelow_);
 		f("Melee.fOomphFrom", meleeOomphFrom_);
 		f("Melee.fOomphTo", meleeOomphTo_);
-		f("Melee.fKnockAt", meleeKnockAt_);
 		f("Melee.fHeadWhip", headWhip_);
 		f("Melee.fMaxPush", meleeMaxPush_);
 		b("Explosions.bPush", blasts_);

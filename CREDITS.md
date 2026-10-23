@@ -28,4 +28,7 @@ Nothing in this repository is extracted from GTA IV or derived from its files: d
 - [SimpleIni](https://github.com/brofield/simpleini): MIT
 - [xbyak](https://github.com/herumi/xbyak): BSD-3-Clause
 - [rapidcsv](https://github.com/d99kris/rapidcsv): BSD-3-Clause
+- [SKSE Menu Framework](https://www.nexusmods.com/skyrimspecialedition/mods/120352) by Thiago Kaique: the in-game menu draws
+  through it when it is installed (optional; not shipped). Its API header, `plugin/src/third_party/SKSEMenuFramework.h`,
+  is from [SKSE-Menu-Framework-3-Example](https://github.com/QTR-Modding/SKSE-Menu-Framework-3-Example): MIT, Copyright (c) 2024 Thiago Kaique
 - [DirectXMath](https://github.com/microsoft/DirectXMath), [DirectXTK](https://github.com/microsoft/DirectXTK): MIT
