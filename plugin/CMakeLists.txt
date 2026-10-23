@@ -38,8 +38,13 @@ find_path(SIMPLEINI_INCLUDE_DIRS "SimpleIni.h")
 
 # host: SKSE entry, hooks, keys, command file. core: the engine, loaded by the host from a temporary copy so it
 # can be rebuilt and reloaded while the game runs (tools\hotreload.ps1).
-add_library(SkyrimDelirium SHARED src/main.cpp)
-add_library(SkyrimDeliriumCore SHARED src/core.cpp src/engine.cpp src/collision.cpp)
+add_library(SkyrimDelirium SHARED src/host/main.cpp)
+add_library(SkyrimDeliriumCore SHARED
+	src/core/core.cpp src/core/engine.cpp src/core/settings.cpp src/core/hooks.cpp
+	src/core/reactions/hits.cpp src/core/reactions/rules.cpp src/core/reactions/react.cpp src/core/reactions/dying.cpp
+	src/core/body/takeover.cpp src/core/body/update.cpp src/core/body/calibrate.cpp src/core/body/drive.cpp
+	src/core/body/collision.cpp
+	src/core/debug/commands.cpp src/core/debug/trace.cpp)
 foreach(t SkyrimDelirium SkyrimDeliriumCore)
 	target_include_directories(${t} PRIVATE src ${SIMPLEINI_INCLUDE_DIRS} "${DELIRIUM_DIR}/crates/delirium-sdk/include")
 	target_precompile_headers(${t} PRIVATE src/PCH.h)
@@ -49,3 +54,5 @@ foreach(t SkyrimDelirium SkyrimDeliriumCore)
 	# the DLL names its PDB without a folder: debuggers find it beside the loaded copy, never lock the build's
 	target_link_options(${t} PRIVATE /DEBUG:FULL /PDBALTPATH:%_PDB%)
 endforeach()
+# the core's files include "shared.h", "engine.h" from any of its folders
+target_include_directories(SkyrimDeliriumCore PRIVATE src/core)
