@@ -3,8 +3,15 @@
 #define DELIRIUM_PHYSICS_STATIC
 #include "delirium_physics.h"
 
+#include <SimpleIni.h>
+
 namespace delirium
 {
+	namespace settings
+	{
+		struct Setting;
+	}
+
 	struct V3
 	{
 		float x{}, y{}, z{};
@@ -29,7 +36,9 @@ namespace delirium
 	public:
 		static Engine& Get();
 
-		void LoadSettings();
+		void LoadSettings();  // SkyrimDelirium.ini, through the settings table (core/settings/)
+		[[nodiscard]] std::string DumpSettings() const;  // every setting and reaction row, one per line (the settings check)
+		std::vector<settings::Setting> SettingsTable();  // every setting: its ini key, default, limits, menu name and help
 		bool Init();  // kDataLoaded: Delirium's DLL, the character file, our body and rig
 		void OnKey(std::uint32_t a_key, RE::Actor* a_target = nullptr);  // a_target: else the crosshair's / console's NPC
 		void Command(std::string_view a_line);  // main thread: a line of the command file (see Command in engine.cpp)
@@ -260,6 +269,7 @@ namespace delirium
 			[[nodiscard]] float Value(std::string_view a_name, float a_or) const;  // the layer's (or base's) value, else a_or
 		};
 		static Rule ParseRule(std::string_view a_text);
+		void        LoadReactions(const CSimpleIniA& a_ini);  // the built-in rows, then the ini's [Reactions] rows over them
 		const Rule& PickRule(const char* a_phase, const Blow& a_blow, bool a_lethal, std::string& a_key) const;
 		Rule        ElementRule(int a_element) const;  // the element's layers ([Reactions] fire / shock / frost)
 		const Rule* FindRule(std::initializer_list<std::string> a_keys, std::string& a_key) const;  // the first of these rows there is
