@@ -100,6 +100,19 @@ namespace delirium
 			b.by = last.from.get();
 		}
 		b.note = fmt::format("{:.0f} damage x{:.2f}, oomph {:.2f}", hit ? last.damage : 0.0f, scale, b.oomph);
+		if (hit && last.shout && a_kind != kArrow) {
+			// a fire / frost / shock shout (a breath, any mod's): a shout's rows by its words (stand.shout.word1-3), pushed
+			// like a stagger of that many words, not like a bolt of its damage; its element on top
+			b.what = "shout";
+			b.type = kBlowShout;
+			b.shot = false;
+			b.word = last.word;
+			b.knocks = last.stagger >= kKnockStagger;
+			const float words = b.word ? static_cast<float>(b.word) / 3.0f : 0.5f;
+			b.oomph = words;
+			b.push = staggerPush_ * (staggerMin_ + (1.0f - staggerMin_) * words) * Rand(0.9f, 1.1f);
+			b.note = fmt::format("{} word{}, {}, {:.0f} damage", b.word, b.word == 1 ? "" : "s", what, last.damage);
+		}
 		if (a_kind != kArrow && !a_sure) {
 			b.startChance = StartChance(a_target, spellChance_);  // arrows always; a spell by chance unless she is in already
 		}
@@ -368,16 +381,31 @@ namespace delirium
 		b.exact = hit && last.exact && !(last.flags & kExplosion);
 		b.at = last.at;
 		if (hit && last.shout && !b.melee) {
-			// a shout: its own row; strong, it throws her (Unrelenting Force), along the push, up as a blast throws
+			// a shout: its own rows, one per word (stand.shout.word1-3: push, throw). The words from the spell that hit
+			// (its shout's variation), else the shouter's shout level, else a guess from the magnitude, which is no measure
+			// of them: it falls off with distance (one Fus Ro Dah came in at 0.48 to 1.00)
 			b.what = "shout";
 			b.type = kBlowShout;
 			b.oomph = a_magnitude;
-			if (a_magnitude >= shoutThrowFrom_ && shoutFly_ > 0.0f) {
-				const float v = shoutFly_ * a_magnitude * Rand(0.9f, 1.1f);
-				b.fly = { b.dir.x * v, b.dir.y * v, flyUp_ * v };
+			const char* from = "the spell";
+			b.word = last.word;
+			if (last.element == kFire || last.element == kFrost || last.element == kShock) {
+				b.element = last.element;  // a fire / frost / shock shout that staggers: that reaction on top
 			}
+			if (!b.word) {
+				from = "a guess from the magnitude";
+				b.word = a_magnitude < 0.55f ? 1 : a_magnitude < 0.86f ? 2 : 3;
+				if (const auto* proc = by ? by->GetActorRuntimeData().currentProcess : nullptr; proc && proc->high && proc->high->currentShout) {
+					if (const auto v = static_cast<std::uint32_t>(proc->high->currentShoutVariation); v < 3) {
+						b.word = static_cast<int>(v) + 1;
+						from = "the shouter's level";
+					}
+				}
+			}
+			b.knocks = last.stagger >= kKnockStagger;
+			b.note = fmt::format("{} word{} ({}), stagger {:.2f}{}, ", b.word, b.word > 1 ? "s" : "", from, last.stagger, b.knocks ? " (knocks down)" : "");
 		}
-		b.note = fmt::format("magnitude {:.2f}, {}, {:.0f} damage x{:.2f}, oomph {:.2f}", a_magnitude, why, hit ? last.damage : 0.0f, scale, b.oomph);
+		b.note += fmt::format("magnitude {:.2f}, {}, {:.0f} damage x{:.2f}, oomph {:.2f}", a_magnitude, why, hit ? last.damage : 0.0f, scale, b.oomph);
 		React(a_target, b);
 	}
 

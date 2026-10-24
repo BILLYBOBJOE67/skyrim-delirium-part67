@@ -18,12 +18,13 @@ namespace delirium
 			const char* help;
 		};
 		constexpr Phase kPhases[]{
-			{ "stand", "Standing: a blow on her feet",
+			{ "stand", "Standing: a blow while standing",
 				"stand.type.strength, then stand.strength, stand.type, stand: the most exact row wins.\n"
 				"Base: shot[:health] (Delirium's shot: 100+ stays up, under 100 hurt and falls), flinch (guard up, turned to the attacker), "
 				"step (balance, catch it), none (push only).\n"
 				"Layers: spin (the jolt twists the spine), headsnap[:x], push:x, collapse (lethal: goes down), burn[:s], shock[:s], chill[:s], throw[:m/s] (thrown as by an explosion).\n"
-				"Strength: light (a push under fFlinchBelow), heavy (oomph from fHeavyOomph), lethal (the killing blow)." },
+				"Strength: light (a push under fFlinchBelow), heavy (oomph from fHeavyOomph), lethal (the killing blow). "
+				"Shouts: word1, word2, word3 (Fus, Fus Ro, Fus Ro Dah) in place of light / heavy." },
 			{ "element", "Elements: what every blow of an element adds",
 				"fire / shock / frost: layers every blow of that element gets on top of its row, e.g. burn, shock, chill[:s], throw[:m/s]." },
 			{ "fly", "Thrown: in the air",
@@ -31,12 +32,12 @@ namespace delirium
 				"Choices by weight: windmill (arms windmill, legs pedal), rollup, highfall, foetal (curled, legs kick); e.g. foetal:50, windmill:30.\n"
 				"Layers: thrash (the spine thrashes, as on fire), shock (electrocuted), tumble:x." },
 			{ "downhit", "Hit while down",
-				"downhit.type, downhit. react (she reacts on the ground; none: only moved), push:x, time:x (how long)." },
-			{ "down", "Once down: how she lies",
+				"downhit.type, downhit. react (the NPC reacts on the ground; none: only moved), push:x, time:x (how long)." },
+			{ "down", "Once down: how the NPC lies",
 				"down.element, down. With no row: [Down] fFoetalChance (foetal, else 60% writhe, 40% roll).\n"
 				"Choices by weight: writhe, roll, foetal, still. Layers: amp:x, period:s (the writhe's size and s per cycle), shock, shiver." },
-			{ "die", "Dying: as she dies",
-				"die.held(.element) after dying on her feet, else die.element, die.type, die. With no row: from [Deaths].\n"
+			{ "die", "Dying: as the NPC dies",
+				"die.held(.element) after dying standing, else die.element, die.type, die. With no row: from [Deaths].\n"
 				"shot[:health] (the dying shot; none: no shot), push[:x] (fDeathPush x), catch:chance (arms out to break the fall), "
 				"writhe:chance (a weak writhe before limp), amp:x, period:s. E.g. die.fire=shot:40, push, writhe:1, amp:1.6, period:1.5" },
 		};
@@ -55,13 +56,17 @@ namespace delirium
 			return e ? std::strcmp(a_p.key, e) == 0 : First(a_key) == a_p.key;
 		}
 
-		// "stand.arrow.heavy" -> "arrows, heavy"
+		// "stand.arrow.heavy" -> "arrows, heavy". Short: the row's text is drawn beside it (what each word covers: Covers)
 		std::string Situation(std::string_view a_key)
 		{
-			static constexpr std::pair<std::string_view, const char*> kWords[]{ { "melee", "melee" }, { "arrow", "arrows" }, { "spell", "spells" },
-				{ "blast", "explosions" }, { "stagger", "staggers" }, { "knock", "knocked down by Skyrim" }, { "shout", "shouts" }, { "other", "anything else" },
-				{ "frost", "frost" }, { "fire", "fire" }, { "shock", "shock" }, { "magic", "other magic" }, { "light", "light blow" },
-				{ "heavy", "heavy blow" }, { "lethal", "killing blow" }, { "far", "far (high fall)" }, { "held", "after dying on her feet" } };
+			static constexpr std::pair<std::string_view, const char*> kWords[]{ { "melee", "melee hits" }, { "arrow", "arrows" }, { "spell", "spells" },
+				{ "blast", "explosions" }, { "stagger", "staggers, no hit" }, { "knock", "knocked down by Skyrim" }, { "shout", "shouts" },
+				{ "other", "anything else" }, { "frost", "frost" }, { "fire", "fire" }, { "shock", "shock" }, { "magic", "other magic" },
+				{ "light", "light" }, { "heavy", "heavy" }, { "lethal", "killing blow" }, { "far", "far (high fall)" }, { "held", "after dying standing" },
+				{ "word1", "1st word (Fus)" }, { "word2", "2nd word (Fus Ro)" }, { "word3", "3rd word (Fus Ro Dah)" } };
+			if (a_key.find(".stagger.light") != std::string_view::npos) {
+				return "weak staggers, no hit";
+			}
 			std::string out;
 			std::size_t s = a_key.find('.');
 			if (PhaseOf(a_key)) {
@@ -76,6 +81,34 @@ namespace delirium
 				const auto it = std::find_if(std::begin(kWords), std::end(kWords), [&](const auto& p) { return p.first == w; });
 				out += (out.empty() ? "" : ", ") + std::string(it != std::end(kWords) ? it->second : w);
 				s = e;
+			}
+			return out;
+		}
+
+		// what a row's words cover, for its tooltip. A melee blow that staggers is "melee"; "stagger" is a stagger with no
+		// blow behind it (Stagger in reactions/hits.cpp): the two a player needs told apart.
+		std::string Covers(std::string_view a_key)
+		{
+			std::string out;
+			const auto  has = [&](std::string_view w) { return (std::string(a_key.substr(a_key.find('.') + 1)) + ".").find(std::string(w) + ".") != std::string::npos; };
+			if (a_key.find('.') == std::string_view::npos) {
+				return out;
+			}
+			if (has("melee")) {
+				out += "Melee hits: every one, the ones that stagger too (power attacks, bashes, hard swings), pushed by the blow.\n";
+			}
+			if (has("stagger")) {
+				out += "Staggers with no melee hit behind them: an enemy recoiling off your block, a stagger spell or effect, an explosion's stagger.\n";
+			}
+			if (has("light")) {
+				out += has("stagger") ? "Weak: the stagger pushes under Flinch below (Melee, Fine tuning). Most block recoils.\n"
+				                      : "Light: the blow pushes under Flinch below (Melee, Fine tuning).\n";
+			}
+			if (has("word1") || has("word2") || has("word3")) {
+				out += "A shout of that many words (read from the spell that hit, not from how hard it staggers). Push:x pushes harder, throw:m/s throws (then the Thrown rows).\n";
+			}
+			if (has("heavy")) {
+				out += "Heavy: the blow's oomph from Heavy from (Reactions). A stagger with no hit is never heavy.\n";
 			}
 			return out;
 		}
@@ -95,6 +128,12 @@ namespace delirium
 				}
 				for (const char* t : kTypes) {
 					out.push_back(p + "." + t);
+					if (std::strcmp(t, "shout") == 0) {
+						for (const char* w : { "word1", "word2", "word3", "lethal" }) {
+							out.push_back(p + ".shout." + w);
+						}
+						continue;
+					}
 					for (const char* b : kBands) {
 						out.push_back(p + "." + t + "." + b);
 					}
@@ -248,22 +287,22 @@ namespace delirium
 		std::vector<Word> Words(std::string_view a_phase, float a_burn, float a_shock, float a_chill, float a_dyingHealth)
 		{
 			using enum Kind;
-			const Word burn{ "burn", Value, "Burns", "She burns on top for this many s", 0.0f, 10.0f, a_burn };
-			const Word shock{ "shock", Value, "Shocked", "She is shocked on top for this many s", 0.0f, 10.0f, a_shock };
-			const Word chill{ "chill", Value, "Chilled", "She is chilled (slowed, shivering) on top for this many s", 0.0f, 10.0f, a_chill };
+			const Word burn{ "burn", Value, "Burns", "The NPC also burns for this many s", 0.0f, 10.0f, a_burn };
+			const Word shock{ "shock", Value, "Shocked", "The NPC is also shocked for this many s", 0.0f, 10.0f, a_shock };
+			const Word chill{ "chill", Value, "Chilled", "The NPC is also chilled (slowed, shivering) for this many s", 0.0f, 10.0f, a_chill };
 			const Word thrown{ "throw", Value, "Throw", "Thrown along the blow at this many m/s, as an explosion throws (then the Thrown rows play); "
 							   "5 is a hard shove, 9 an explosion's most, 15 across the room", 0.0f, 20.0f, 6.0f };
 			if (a_phase == "stand") {
 				return {
 					{ "shot", Base, "Shot", "Delirium's shot: wounded where it hit, fighting to stay up. Health 100 and up stays up and catches a fall, under 100 is hurt and falls",
-						0.0f, 200.0f, std::numeric_limits<float>::quiet_NaN(), "health: from hers" },
+						0.0f, 200.0f, std::numeric_limits<float>::quiet_NaN(), "health: from the NPC's" },
 					{ "flinch", Base, "Flinch", "Guard up, turned to whoever did it (with no one: a step)" },
-					{ "none", Base, "Push only", "No behaviour: only the push moves her" },
-					{ "step", Base, "Step", "Keeps her balance with catch steps; past what the steps can catch she falls" },
+					{ "none", Base, "Push only", "No behaviour: only the push moves the NPC" },
+					{ "step", Base, "Step", "Keeps balance with catch steps; past what the steps can catch the NPC falls" },
 					{ "spin", Flag, "Spin", "The jolt twists the spine; a harder hit twists more" },
 					{ "headsnap", Value, "Head snap", "The head snaps back with the blow, x this", 0.0f, 3.0f, 1.0f },
 					{ "push", Value, "Push", "The push, x this", 0.0f, 3.0f, 1.0f },
-					{ "collapse", Flag, "Collapse", "Killing blow rows: she stops fighting it and goes down" },
+					{ "collapse", Flag, "Collapse", "Killing blow rows: the NPC stops fighting it and goes down" },
 					burn, shock, chill, thrown,
 				};
 			}
@@ -283,10 +322,10 @@ namespace delirium
 			}
 			if (a_phase == "downhit") {
 				return {
-					{ "react", Base, "Reacts", "She reacts on the ground (curls, writhes) for a while" },
+					{ "react", Base, "Reacts", "The NPC reacts on the ground (curls, writhes) for a while" },
 					{ "none", Base, "Only moved", "The blow only moves the part it hit" },
 					{ "push", Value, "Push", "The push, x this (a body on the ground takes less: 0.6)", 0.0f, 3.0f, 1.0f },
-					{ "time", Value, "Time", "How long she reacts, x this", 0.0f, 3.0f, 1.0f },
+					{ "time", Value, "Time", "How long the NPC reacts, x this", 0.0f, 3.0f, 1.0f },
 				};
 			}
 			if (a_phase == "down") {
@@ -305,10 +344,10 @@ namespace delirium
 				return {
 					{ "shot", Base, "Dying shot", "Reaching for the wound, breaking the fall, at this health (0: a limp flop, under 100 hurt)",
 						0.0f, 99.0f, a_dyingHealth },
-					{ "", Base, "No shot", "No dying shot: she goes straight to what follows" },
+					{ "", Base, "No shot", "No dying shot: the NPC goes straight to what follows" },
 					{ "push", Value, "Push", "Pushed away from the killer, x [Deaths] Death push", 0.0f, 4.0f, 1.0f },
 					{ "catch", Value, "Break the fall", "Chance the arms go out to break the fall", 0.0f, 1.0f, 1.0f },
-					{ "writhe", Value, "Writhe first", "Chance of a weak writhe on the ground before she goes limp", 0.0f, 1.0f, 1.0f },
+					{ "writhe", Value, "Writhe first", "Chance of a weak writhe on the ground before the NPC goes limp", 0.0f, 1.0f, 1.0f },
 					{ "amp", Value, "Writhe size", "That writhe's size", 0.0f, 3.0f, std::numeric_limits<float>::quiet_NaN(), "the default" },
 					{ "period", Value, "Writhe speed", "That writhe's s per cycle", 0.1f, 3.0f, std::numeric_limits<float>::quiet_NaN(), "the default" },
 				};
@@ -374,7 +413,7 @@ namespace delirium
 					}
 					EndCombo();
 				}
-				menu::Help(std::string(b->help) + "\n\nHow she reacts: the row's base behaviour. The layers below add to it.");
+				menu::Help(std::string(b->help) + "\n\nHow the NPC reacts: the row's base behaviour. The layers below add to it.");
 				if (b->hi > b->lo) {
 					SameLine();
 					auto  it = p.on.find(p.base);
@@ -464,8 +503,12 @@ namespace delirium
 			"stand.<type>.<strength>, then stand.<strength>, then stand.<type>, then stand. So 'stand.arrow.heavy' (a hard arrow "
 			"hit) wins over 'stand.arrow' (any arrow), which wins over 'stand' (anything). Add a row only where you want a "
 			"situation to differ; remove it to fall back to the less exact one.");
-		BulletText("Types: melee, arrow, spell, blast (explosion), stagger, knock (Skyrim knocked her down), shout, other.");
+		BulletText("Types: melee, arrow, spell, blast (explosion), stagger, knock (Skyrim knocked the NPC down), shout, other.");
+		BulletText("Staggers: one from a melee hit (a power attack, a bash, a hard swing) is a melee row, pushed by the blow. "
+				   "'stagger' rows are staggers with no melee hit behind them: an enemy recoiling off your block, a stagger spell "
+				   "or effect, an explosion's stagger. Most block recoils are weak, so they use stand.stagger.light.");
 		BulletText("Strength: light (a push under Melee 'Flinch below'), heavy (from 'Heavy from' oomph), lethal (the killing blow).");
+		BulletText("Shouts: one row per word (stand.shout.word1, word2, word3); throw:m/s on a word's row throws, then the Thrown rows pick the fall.");
 		BulletText("Elements (fire, shock, frost): their row's layers go on top of every blow of that element.");
 		BulletText("The Core log names the row each hit used, e.g. [stand.arrow: shot, spin, headsnap].");
 		for (const auto& ph : kPhases) {
@@ -484,6 +527,90 @@ namespace delirium
 			"'Edit as text' on the Reactions page shows the rows as the ini writes them: the base first, then layers, separated "
 			"by commas; name:number gives a number, e.g.  shot:150, spin, headsnap:1.5  or, for a throw,  foetal:50, windmill:30. "
 			"A word left without a number takes its default.");
+	}
+
+	// One row on its own (the Quick page). A row that isn't in the table shows the row deciding it now (the order PickRule
+	// and Fly look them up in); a change adds it, so only that situation changes.
+	void Engine::MenuRow(const std::string& a_key, const char* a_label)
+	{
+		using namespace ImGuiMCP;
+		const Phase* ph = nullptr;
+		for (const auto& p : kPhases) {
+			if (InPhase(a_key, p)) {
+				ph = &p;
+				break;
+			}
+		}
+		if (!ph) {
+			return;
+		}
+		const auto rows = Rows();
+		const auto text = [&](const std::string& a_k) -> const std::string* {
+			const auto it = std::find_if(rows.begin(), rows.end(), [&](const auto& r) { return r.first == a_k; });
+			return it != rows.end() ? &it->second : nullptr;
+		};
+		const std::string* own = text(a_key);
+		std::string        t = own ? *own : "", from;
+		if (!own) {
+			// phase.type.strength: stand looks at phase.strength before phase.type, fly the other way round
+			std::vector<std::string> next;
+			const auto               a = a_key.find('.'), b = a_key.find('.', a == std::string::npos ? a : a + 1);
+			if (b != std::string::npos) {
+				const std::string p = a_key.substr(0, a), ty = a_key.substr(0, b), st = p + a_key.substr(b);
+				next = First(a_key) == "fly" ? std::vector{ ty, st, p } : std::vector{ st, ty, p };
+			} else if (a != std::string::npos) {
+				next = { a_key.substr(0, a) };
+			}
+			for (const auto& k : next) {
+				if (const auto* x = text(k)) {
+					t = *x;
+					from = k;
+					break;
+				}
+			}
+		}
+		PushID(a_key.c_str());
+		const bool open = TreeNodeEx("##q", ImGuiTreeNodeFlags_AllowOverlap, "%s", a_label);
+		const std::string tip = std::format("{}[Reactions] {}={}{}", Covers(a_key), a_key, t.empty() ? "(nothing)" : t,
+			own ? "" : std::format("\n\nNo row of its own: {} decides it now. A change here adds one for this situation only.",
+						   from.empty() ? "nothing" : "'" + from + "'"));
+		menu::Help(tip);
+		SameLine(GetContentRegionAvail().x * 0.35f);
+		TextDisabled("%s%s", t.empty() ? "(nothing)" : t.c_str(), own ? "" : "   (shared)");
+		menu::Help(tip);
+		const char* builtIn{};
+		if (own && IsBuiltInRow(a_key, &builtIn) && t != builtIn) {
+			SameLine();
+			if (SmallButton("built-in")) {
+				ResetRow(a_key);
+				NoteEdit("Reactions." + a_key, "'" + t + "'", std::format("'{}' (built in)", builtIn));
+			}
+			menu::Help(std::format("Back to the mod's own: {}", builtIn));
+		} else if (own && !IsBuiltInRow(a_key)) {
+			SameLine();
+			if (SmallButton("shared")) {
+				ResetRow(a_key);
+				NoteEdit("Reactions." + a_key, "'" + t + "'", "(removed)");
+			}
+			menu::Help("Remove this situation's own row: the less exact row decides it again");
+		}
+		if (open) {
+			std::string now = t;
+			bool        done = false;
+			if (Controls(Words(ph->key, burnTime_, shockTime_, channelLinger_, dyingHealth_), now, done)) {
+				if (g_dragRow != a_key) {
+					g_dragRow = a_key;
+					g_dragWas = own ? "'" + t + "'" : "(none)";
+				}
+				SetRow(a_key, now);
+			}
+			if (done && g_dragRow == a_key) {
+				NoteEdit("Reactions." + a_key, g_dragWas, "'" + now + "'");
+				g_dragRow.clear();
+			}
+			TreePop();
+		}
+		PopID();
 	}
 
 	void Engine::MenuReactions()
@@ -521,7 +648,7 @@ namespace delirium
 				if (g_asText) {
 					AlignTextToFramePadding();
 					TextUnformatted(Situation(k).c_str());
-					menu::Help(k);
+					menu::Help(Covers(k) + k);
 					SameLine(GetContentRegionAvail().x * 0.3f);
 					SetNextItemWidth(GetContentRegionAvail().x * 0.55f);
 					char       buf[256]{};
@@ -539,10 +666,10 @@ namespace delirium
 					} else if (!IsItemActive()) {
 						g_typing.erase(k);
 					}
-					menu::Help(std::format("[Reactions] {}={}", k, t));
+					menu::Help(std::format("{}[Reactions] {}={}", Covers(k), k, t));
 				} else {
 					rowOpen = TreeNodeEx("##row", ImGuiTreeNodeFlags_AllowOverlap, "%s", Situation(k).c_str());
-					menu::Help(std::format("[Reactions] {}={}", k, t.empty() ? "(nothing)" : t));
+					menu::Help(std::format("{}[Reactions] {}={}", Covers(k), k, t.empty() ? "(nothing)" : t));
 					SameLine(GetContentRegionAvail().x * 0.35f);
 					TextDisabled("%s", t.empty() ? "(nothing)" : t.c_str());
 				}

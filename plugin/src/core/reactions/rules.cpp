@@ -52,9 +52,15 @@ namespace delirium
 
 	const Engine::Rule& Engine::PickRule(const char* a_phase, const Blow& a_blow, bool a_lethal, std::string& a_key) const
 	{
-		// the most exact row there is: phase.type.strength, phase.strength, phase.type, phase
+		// the most exact row there is: phase.type.strength, phase.strength, phase.type, phase. A shout's strength is its
+		// words (word1-3), not light / heavy
+		static constexpr const char* kWords[]{ "word1", "word2", "word3" };
 		const char*       type = TypeName(a_blow.type);
-		const char*       band = a_lethal ? "lethal" : a_blow.push < flinchBelow_ ? "light" : a_blow.oomph >= heavyOomph_ ? "heavy" : "";
+		const char*       band = a_lethal                              ? "lethal"
+		                         : a_blow.word >= 1 && a_blow.word <= 3 ? kWords[a_blow.word - 1]
+		                         : a_blow.push < flinchBelow_           ? "light"
+		                         : a_blow.oomph >= heavyOomph_          ? "heavy"
+		                                                                : "";
 		const std::string p(a_phase);
 		std::vector<std::string> tries;
 		if (*band) {

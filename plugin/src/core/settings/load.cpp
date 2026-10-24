@@ -154,7 +154,8 @@ namespace delirium
 
 		// a key no setting reads is a typo or an old name: say so (settings the mod dropped, which did nothing, quietly)
 		static constexpr std::pair<const char*, const char*> kRetired[]{ { "Melee", "fKnockAt" }, { "Hits", "fOomphLean" }, { "Hits", "fReelAt" },
-			{ "Hits", "fFallAt" }, { "Hits", "fReelTime" }, { "Hits", "fReelTimeAdd" } };
+			{ "Hits", "fFallAt" }, { "Hits", "fReelTime" }, { "Hits", "fReelTimeAdd" },
+			{ "Shouts", "fThrowFrom" }, { "Shouts", "fFlySpeed" } };  // shouts: the stand.shout.word1-3 rows now
 		CSimpleIniA::TNamesDepend sections;
 		ini.GetAllSections(sections);
 		for (const auto& sec : sections) {
@@ -209,6 +210,9 @@ namespace delirium
 			{ "stand.stagger.light", "flinch" },
 			{ "stand.blast.light", "flinch" },
 			{ "stand.lethal", "shot:150, spin, headsnap, collapse" },
+			{ "stand.shout.word1", "step" },
+			{ "stand.shout.word2", "step, push:2" },
+			{ "stand.shout.word3", "step, throw:9" },
 			{ "fire", "burn" },
 			{ "shock", "shock" },
 			{ "frost", "" },
@@ -262,7 +266,7 @@ namespace delirium
 	std::vector<std::string> Engine::UnknownBehaviours(const Rule& a_rule)
 	{
 		static constexpr std::string_view kKnown[]{ "shot", "flinch", "step", "none", "spin", "headsnap", "collapse", "push", "burn", "shock", "chill", "catch",
-			"foetal", "windmill", "rollup", "highfall", "thrash", "tumble", "react", "time", "writhe", "roll", "still", "amp", "period", "shiver" };
+			"throw", "foetal", "windmill", "rollup", "highfall", "thrash", "tumble", "react", "time", "writhe", "roll", "still", "amp", "period", "shiver" };
 		std::vector<std::string> out;
 		for (const auto& [n, v] : a_rule.layers) {
 			if (std::find(std::begin(kKnown), std::end(kKnown), n) == std::end(kKnown)) {

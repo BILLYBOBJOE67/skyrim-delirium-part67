@@ -73,6 +73,7 @@ namespace delirium
 		// a row's words as the engine reads them: name, number (NaN: none given), the first one its base
 		static std::vector<std::pair<std::string, float>> RowWords(std::string_view a_text) { return ParseRule(a_text).layers; }
 		void MenuReactionsHelp();  // the Help page's part on the reaction table (core/menu/reactions.cpp)
+		void MenuRow(const std::string& a_key, const char* a_label);  // one reaction row's controls, on its own (the Quick page)
 		// ---- saving (core/settings/save.cpp): only the lines whose value differs are rewritten, comments stay
 		bool SaveIni(std::string& a_msg);
 		bool SavePreset(const std::string& a_name, std::string& a_msg);  // Presets\<name>.ini: what differs from the defaults
@@ -292,6 +293,7 @@ namespace delirium
 			bool         exact{};        // at is on her (else the chest)
 			V3           dir{};          // the way it pushes (unit)
 			float        push{};         // N s
+			bool         knocks{};      // a shout that staggers as hard as Fus Ro Dah (kKnockStagger): only it takes a row's throw
 			int          element{ -1 };  // kFire / kShock: that reaction on top, for its own time
 			bool         shot{};         // a projectile went in: Delirium's shot task. Else by strength: a flinch or a step
 			bool         canStart{ true };  // may bring her into Delirium (a melee blow only joins a reaction)
@@ -303,6 +305,7 @@ namespace delirium
 			bool         stagger{};      // Skyrim staggered her with it: on her feet it pushes up to [Stagger] fMaxPush
 			int          type{ 0 };      // BlowType: its row in the reaction table
 			bool         inherited{};    // fly: she already moves (Skyrim's own knock, taken over): no velocity or tumble of ours
+			int          word{};         // a shout's words, 1-3 (its rows: stand.shout.word1-3); 0: not a shout
 		};
 		// the reaction table ([Reactions]): a blow's phase, type and strength pick one rule, a base behaviour and its layers
 		enum BlowType : int { kBlowOther, kBlowMelee, kBlowArrow, kBlowSpell, kBlowBlast, kBlowStagger, kBlowKnock, kBlowShout };
@@ -429,8 +432,6 @@ namespace delirium
 		float         dyingTime_{ 3.0f };
 		std::unordered_map<std::string, Rule> rules_;  // [Reactions], over the built-in table
 		float         heavyOomph_{ 0.5f };  // [Reactions] fHeavyOomph: from this oomph a blow is heavy
-		float         shoutThrowFrom_{ 0.6f };  // [Shouts] fThrowFrom: a shout's stagger from this magnitude throws her
-		float         shoutFly_{ 9.0f };        // [Shouts] fFlySpeed: m/s she is thrown at, at magnitude 1     // [Deaths] fDyingTime: s she may die on her feet before the death goes through (0: off)
 		std::unordered_map<RE::FormID, Held> held_;      // deaths held back (under lock_)
 		std::unordered_set<std::string>      ragdollDumps_;  // limit sets already written by DumpRagdoll
 		std::unordered_set<RE::FormID>       heldDied_;  // killed after a hold: her death ragdoll gets no new shot or push

@@ -129,7 +129,10 @@ namespace delirium
 			rule.layers.insert(rule.layers.end(), el.layers.begin(), el.layers.end());
 		}
 		// throw:m/s (the row or the element's): thrown along the blow as an explosion throws (fly rows, up by fFlyUp)
-		if (const float v = rule.Value("throw", 6.0f); rule.Has("throw") && v > 0.0f) {
+		// a shout's only if it knocks down in Skyrim (Fus Ro Dah, a mod's as strong): the others' last word stays standing
+		if (b.type == kBlowShout && !b.knocks && rule.Has("throw")) {
+			logger::info("{:08X}: [{}] throws, but this shout doesn't knock down (stagger under {:.1f}): not thrown", a_actor->GetFormID(), key, kKnockStagger);
+		} else if (const float v = rule.Value("throw", 6.0f); rule.Has("throw") && v > 0.0f) {
 			const float fl = std::sqrt(b.dir.x * b.dir.x + b.dir.y * b.dir.y);
 			if (fl > 1e-3f) {
 				Blow t = b;
@@ -719,6 +722,16 @@ namespace delirium
 			b.fly = a_vel;
 			b.inherited = true;
 			b.oomph = std::clamp(along / std::max(flyMax_, 1e-3f), 0.0f, 1.0f);
+			// a shout's knock-down (Fus Ro Dah, a mod's): its own thrown rows (fly.shout), its element on top
+			if (LastHit last; RecentHit(self->GetFormID(), 1.0f, last) && last.shout) {
+				b.what = "shout";
+				b.note = fmt::format("{} words, Skyrim's push taken over", last.word);
+				b.type = kBlowShout;
+				b.word = last.word;
+				if (last.element == kFire || last.element == kFrost || last.element == kShock) {
+					b.element = last.element;
+				}
+			}
 			Fly(a, self.get(), b);
 			return;
 		}

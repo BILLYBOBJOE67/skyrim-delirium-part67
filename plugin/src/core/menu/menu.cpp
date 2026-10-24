@@ -313,15 +313,119 @@ namespace delirium
 				}
 			}
 
+			// By situation: the few settings and reaction rows that decide it most. The same settings and rows as on the other
+			// pages (a change here is that change there); the rest stays there.
+			void Quick(Engine& a_e)
+			{
+				using namespace ImGuiMCP;
+				TextWrapped(
+					"What happens in each situation, and how hard, in one place. These are the same settings and reaction rows as on "
+					"the other pages, which hold the rest. Open a row to change what the NPC does; hover anything for what it covers.");
+				const auto table = a_e.SettingsTable();
+				const auto set = [&](const char* a_sec, const char* a_key) {
+					for (const auto& s : table) {
+						if (std::strcmp(s.section, a_sec) == 0 && std::strcmp(s.key, a_key) == 0) {
+							Row(a_e, s);
+							return;
+						}
+					}
+				};
+				const auto area = [](const char* a_title, const char* a_help) {
+					const bool open = CollapsingHeader(a_title);
+					Help(a_help);
+					if (open) {
+						Indent();
+						TextDisabled("%s", a_help);
+					}
+					return open;
+				};
+				if (area("Melee hits", "Your blows (swords, axes, fists, bashes) on an NPC: a power attack or a bash that staggers brings them in, "
+									   "then every blow reacts.")) {
+					set("Melee", "bReact");
+					set("Melee", "fPush");
+					set("Melee", "fPower");
+					set("Melee", "fBash");
+					a_e.MenuRow("stand.melee.light", "Light blows");
+					a_e.MenuRow("stand.melee", "Blows");
+					a_e.MenuRow("stand.melee.heavy", "Heavy blows");
+					Unindent();
+				}
+				if (area("Blocking and staggers", "A stagger with no blow behind it: an enemy recoiling off your block, a stagger spell or effect, an "
+												  "explosion's stagger. A power attack's stagger is a melee hit (above).")) {
+					set("Stagger", "bReplace");
+					set("Stagger", "fPush");
+					a_e.MenuRow("stand.stagger.light", "Weak staggers (block recoils)");
+					a_e.MenuRow("stand.stagger", "Staggers");
+					Unindent();
+				}
+				if (area("Arrows", "An arrow or bolt that hits a living NPC: always brings them in.")) {
+					set("Arrows", "bShotReaction");
+					set("Arrows", "fPush");
+					a_e.MenuRow("stand.arrow", "Arrow hits");
+					a_e.MenuRow("stand.arrow.heavy", "Hard arrow hits");
+					Unindent();
+				}
+				if (area("Spells", "Destruction missiles, and fire / frost / shock from any source. A missile brings the NPC in by chance; "
+								   "the element rows go on top of every blow of that element.")) {
+					set("Spells", "bShotReaction");
+					set("Spells", "fStartChance");
+					set("Spells", "fStartChanceHurt");
+					set("Spells", "fChannelChance");
+					a_e.MenuRow("stand.spell", "Spell hits");
+					a_e.MenuRow("fire", "Fire, on top");
+					a_e.MenuRow("shock", "Shock, on top");
+					a_e.MenuRow("frost", "Frost, on top");
+					set("Spells", "fBurnTime");
+					Unindent();
+				}
+				if (area("Shouts", "Any shout that staggers, by its words (from the spell that hit). A throw on a word's row only throws a "
+								   "shout that staggers as hard as Fus Ro Dah; fire and frost shouts get their element on top.")) {
+					a_e.MenuRow("stand.shout.word1", "1st word (Fus)");
+					a_e.MenuRow("stand.shout.word2", "2nd word (Fus Ro)");
+					a_e.MenuRow("stand.shout.word3", "3rd word (Fus Ro Dah)");
+					a_e.MenuRow("fly.shout", "Thrown by a shout");
+					a_e.MenuRow("fly.shout.far", "Thrown far by a shout");
+					Unindent();
+				}
+				if (area("Explosions", "Fireballs, runes, explosive arrows: everyone caught is pushed away from the centre, thrown when close.")) {
+					set("Explosions", "bPush");
+					set("Explosions", "fPush");
+					set("Explosions", "fFlySpeed");
+					a_e.MenuRow("stand.blast.light", "Caught at the edge");
+					a_e.MenuRow("stand.blast", "Caught");
+					a_e.MenuRow("fly.blast", "Thrown by an explosion");
+					Unindent();
+				}
+				if (area("Thrown and on the ground", "In the air, hit while down, and lying there before getting up (any cause; the "
+													 "rows above win for their own).")) {
+					a_e.MenuRow("fly", "Thrown");
+					a_e.MenuRow("fly.far", "Thrown far");
+					a_e.MenuRow("downhit", "Hit while down");
+					a_e.MenuRow("down", "Lying down");
+					set("Down", "fWritheTime");
+					set("Down", "fFoetalChance");
+					Unindent();
+				}
+				if (area("Deaths", "The killing blow, dying standing, and the fall.")) {
+					set("Deaths", "bNoKillMoves");
+					set("Deaths", "fDyingTime");
+					set("Deaths", "fDyingHealth");
+					set("Deaths", "fDeathPush");
+					a_e.MenuRow("stand.lethal", "The killing blow");
+					a_e.MenuRow("die", "Dying");
+					Unindent();
+				}
+			}
+
 			void Guide(Engine& a_e)
 			{
 				using namespace ImGuiMCP;
-				SeparatorText("How a hit brings her into Delirium");
+				SeparatorText("How a hit brings an NPC into Delirium");
 				TextWrapped(
 					"Arrows, blows, staggers, explosions and shouts always do. A spell's missile does by chance (Difficulty: "
-					"'Spell: chance at full health' and 'near death', in between by her health), and a channelled spell (flames, "
-					"sparks, frostbite) by a chance per second. Once she is in, every hit plays until she is let go.");
-				SeparatorText("What she does");
+					"'Spell: chance at full health' and 'near death', in between by their health), and a channelled spell (flames, "
+					"sparks, frostbite) by a chance per second. Once the NPC is in, every hit plays until Delirium lets go.");
+				SeparatorText("What the NPC does");
 				TextWrapped(
 					"The Reactions page decides it, one row per situation: standing, an element, thrown, hit while down, on the "
 					"ground, dying. Open a row to pick its behaviour and the layers on top of it. Its words are below.");
@@ -438,6 +542,9 @@ namespace delirium
 			break;
 		case 6:
 			menu::Guide(*this);
+			break;
+		case 7:
+			menu::Quick(*this);
 			break;
 		default:
 			break;

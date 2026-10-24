@@ -485,6 +485,7 @@ namespace
 			}
 			// the page numbers are Engine::Menu's
 			SKSEMenuFramework::SetSection("Skyrim Delirium");
+			SKSEMenuFramework::AddSectionItem("Quick", Page<7>);
 			SKSEMenuFramework::AddSectionItem("Reactions", Page<0>);
 			SKSEMenuFramework::AddSectionItem("Strength", Page<1>);
 			SKSEMenuFramework::AddSectionItem("Difficulty", Page<2>);

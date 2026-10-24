@@ -30,6 +30,7 @@ namespace delirium
 	constexpr std::array<int, 21> kParent{ -1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 10, 11, 10, 13, 14, 15, 10, 17, 18, 19 };
 	constexpr int                 kChest = 10;
 	constexpr int                 kHead = 12;
+	constexpr float               kKnockStagger = 1.5f;  // a shout's stagger effect from which Skyrim knocks down (Fus Ro Dah)
 
 	inline std::mt19937                  g_rng{ std::random_device{}() };
 	inline float                         Rand(float a_lo, float a_hi) { return std::uniform_real_distribution<float>(a_lo, a_hi)(g_rng); }
@@ -102,6 +103,8 @@ namespace delirium
 		RE::NiPoint3                          strikeDir;  // its way (unit)
 		int                                   element{ -1 };  // a spell's (Element): its explosion's, which has none of its own
 		bool                                  shout{};        // a shout's (a voice power's) hit
+		int                                   word{};         // its words, 1-3, from its spell (ShoutWord); 0: not known
+		float                                 stagger{};      // its spell's strongest stagger effect (Fus Ro Dah 1.5+)
 	};
 	inline std::mutex                              g_hitLock;
 	inline std::unordered_map<RE::FormID, LastHit> g_lastHit;
@@ -120,6 +123,10 @@ namespace delirium
 				h.from = a_hit.from;
 			}
 			h.shout |= a_hit.shout;
+			if (!h.word) {
+				h.word = a_hit.word;
+			}
+			h.stagger = std::max(h.stagger, a_hit.stagger);
 			return;
 		}
 		h = a_hit;

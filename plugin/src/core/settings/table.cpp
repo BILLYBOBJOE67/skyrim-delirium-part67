@@ -57,17 +57,17 @@ namespace delirium
 			// [Test]
 			I("Test", "iPushKey", pushKey_, 0x41, kAny, Advanced, kNone, "Push key", "DirectX scan code of the test push on the NPC under the crosshair (0x41 = F7)"),
 			I("Test", "iReleaseKey", releaseKey_, 0x3C, kAny, Advanced, kNone, "Release key", "DirectX scan code that hands every body back to Skyrim (0x3C = F2)"),
-			F("Test", "fPush", push_, 80.0, kAny, Advanced, kNone, "Test push", "The test key's push, N s: 80 stumbles, two or three in a row knock her down"),
+			F("Test", "fPush", push_, 80.0, kAny, Advanced, kNone, "Test push", "The test key's push, N s: 80 stumbles, two or three in a row knock the NPC down"),
 			B("Test", "bAutoRelease", autoRelease_, true, Advanced, kNone, "Hand back when caught",
-				"Hand back to Skyrim's animation once she has caught herself; a fallen body is held until Skyrim's get-up"),
+				"Hand back to Skyrim's animation once the NPC has caught their balance; a fallen body is held until Skyrim's get-up"),
 			B("Test", "bFollowAnimation", followAnimation_, true, Advanced, kNone, "Follow the animation",
-				"The body holds her live animation pose (guard up, gestures) instead of a fixed stance"),
+				"The body holds the NPC's live animation pose (guard up, gestures) instead of a fixed stance"),
 			B("Test", "bRecordPoses", recordPoses_, false, Advanced, kHidden, "Record poses", "Dev: the held pose each frame while standing, for fit-test"),
 			B("Test", "bStandingLegs", standingLegs_, true, Advanced, kHidden, "Standing legs", "Dev: the legs hold the body's own stance, not the animation's"),
 
 			// [Ragdoll]
 			B("Ragdoll", "bTakeOver", takeOver_, true, Reactions, P, "Take over Skyrim's ragdolls",
-				"Delirium takes over every living NPC Skyrim ragdolls (Fus Ro Dah, pushes, explosions, other mods) until she gets up"),
+				"Delirium takes over every living NPC Skyrim ragdolls (Fus Ro Dah, pushes, explosions, other mods) until the NPC gets up"),
 			F("Ragdoll", "fTorqueGain", gain_, 1.0, kAny, Advanced, P, "Muscle strength", "Delirium's muscles on Skyrim's ragdoll bodies (1 = Delirium's own)"),
 			F("Ragdoll", "fJointDamping", damp_, 0.0, Range(0.0, 1.0), Advanced, kHidden, "Joint damping", "Dev: share of a joint's spin its muscles take out each step"),
 			F("Ragdoll", "fJointFriction", friction_, 0.0, Range(0.0, 1.0), Advanced, P, "Skyrim's joint friction",
@@ -77,24 +77,24 @@ namespace delirium
 			B("Ragdoll", "bTurnAboutJoint", aboutJoint_, true, Advanced, kHidden, "Turn about the joint", "Dev: a muscle turns the limb about its joint"),
 
 			// [Arrows]
-			B("Arrows", "bShotReaction", arrows_, true, Reactions, P, "Arrows", "An arrow that hits a living NPC: Delirium's shot reaction (stumble, clutch the wound, catch herself or fall)"),
+			B("Arrows", "bShotReaction", arrows_, true, Reactions, P, "Arrows", "An arrow that hits a living NPC: Delirium's shot reaction (stumble, clutch the wound, catch their balance or fall)"),
 			CappedBy(F("Arrows", "fPush", arrowPush_, 55.0, kAny, Strength, P, "Arrow push", "The arrow's push at the point it went in, N s (the test push is 80)"),
 				hitMaxPush_),
-			F("Arrows", "fWoundedBelow", wounded_, 0.2, Range(0.0, 1.0), Strength, P | D, "Wounded below", "Under this share of her health a hit takes her down instead of her catching herself"),
+			F("Arrows", "fWoundedBelow", wounded_, 0.2, Range(0.0, 1.0), Strength, P | D, "Wounded below", "Under this share of the NPC's health a hit knocks them down instead of them catching their balance"),
 
 			// [Spells]
 			B("Spells", "bShotReaction", spells_, true, Reactions, P, "Spells",
 				"Destruction spells' missiles hit like arrows: frost as an arrow, fire burns on top, shock jolts"),
-			F("Spells", "fBurnTime", burnTime_, 2.5, Min(0.0), Timing, P, "Burning", "Seconds she burns after a fire hit (the arms beat at the flames)"),
-			F("Spells", "fShockTime", shockTime_, 2.0, Min(0.0), Timing, P, "Shocked", "Seconds she is shocked after a lightning hit"),
+			F("Spells", "fBurnTime", burnTime_, 2.5, Min(0.0), Timing, P, "Burning", "Seconds the NPC burns after a fire hit (the arms beat at the flames)"),
+			F("Spells", "fShockTime", shockTime_, 2.0, Min(0.0), Timing, P, "Shocked", "Seconds the NPC is shocked after a lightning hit"),
 			F("Spells", "fChannelLinger", channelLinger_, 0.6, Min(0.1), Timing, P, "Channel linger",
 				"Channelled spells (Flames, Frostbite, Sparks): their reaction lasts this long after the last hit, s"),
 			F("Spells", "fStartChance", spellChance_[0], 0.3, Range(0.0, 1.0), Difficulty, P, "Spell: chance at full health",
-				"Chance a spell's missile brings her into Delirium at full health (in between by her health). Once in, every hit plays"),
+				"Chance a spell's missile brings the NPC into Delirium at full health (in between by their health). Once in, every hit plays"),
 			F("Spells", "fStartChanceHurt", spellChance_[1], 0.5, Range(0.0, 1.0), Difficulty, P, "Spell: chance near death",
 				"The same near death. A killing blow and a spell that staggers always do"),
 			F("Spells", "fChannelChance", channelChance_[0], 0.1, Range(0.0, 1.0), Difficulty, P, "Channel: chance at full health",
-				"Chance per second of a channelled spell, at full health. Once in, every tick keeps her in"),
+				"Chance per second of a channelled spell, at full health. Once in, every tick keeps the NPC in"),
 			F("Spells", "fChannelChanceHurt", channelChance_[1], 0.2, Range(0.0, 1.0), Difficulty, P, "Channel: chance near death", "The same near death"),
 
 			// [Stagger]
@@ -107,11 +107,11 @@ namespace delirium
 			F("Stagger", "fHitBoost", staggerHitBoost_, 0.5, Min(0.0), Strength, P, "Staggering blow boost",
 				"A melee blow that staggers pushes as hard as the blow x (1 + this x the stagger's magnitude)"),
 			F("Stagger", "fMaxPush", staggerMaxPush_, 200.0, Min(0.0), Strength, P, "Stagger push at most",
-				"A stagger on her feet pushes at most this, N s, in place of the blow's or spell's cap (past ~200 she may fall)"),
+				"A stagger while standing pushes at most this, N s, in place of the blow's or spell's cap (past ~200 the NPC may fall)"),
 
 			// [Melee]
 			B("Melee", "bReact", melee_, true, Reactions, P, "Melee blows",
-				"While Delirium has her, every blow reacts: a light one flinches, a heavier one makes her step, past that she falls"),
+				"While Delirium has the NPC, every blow reacts: a light one flinches, a heavier one makes them step, past that they fall"),
 			CappedBy(F("Melee", "fPush", meleePush_, 50.0, Min(0.0), Strength, P, "Blow push", "Push for a plain blow (iron sword, 15 damage), N s"),
 				meleeMaxPush_),
 			F("Melee", "fPower", meleePower_, 2.2, Min(0.0), Strength, P, "Power attack", "x the push for a power attack"),
@@ -136,17 +136,17 @@ namespace delirium
 			F("Explosions", "fPush", blastPush_, 90.0, Min(0.0), Strength, P, "Explosion push", "N s at the centre for a 15-damage explosion ([Hits] damage at 1x)"),
 			F("Explosions", "fFarShare", blastFar_, 0.4, Range(0.0, 1.0), Strength, P | D, "At the edge", "Share of the push at the explosion's edge"),
 			F("Explosions", "fUp", blastUp_, 0.25, Range(0.0, 1.0), Strength, P | D, "Upward", "The push's upward part (0 flat, 1 straight up)"),
-			F("Explosions", "fFlySpeed", flySpeed_, 3.0, Min(0.0), Strength, P, "Thrown speed", "m/s she is thrown at, at the centre, for a 15-damage explosion"),
+			F("Explosions", "fFlySpeed", flySpeed_, 3.0, Min(0.0), Strength, P, "Thrown speed", "m/s the NPC is thrown at, at the centre, for a 15-damage explosion"),
 			F("Explosions", "fFlyUp", flyUp_, 0.65, Min(0.0), Strength, P | D, "Thrown upward", "m/s up per m/s along"),
-			Pair(F("Explosions", "fFlyMin", flyMin_, 2.0, Min(0.0), Strength, P | D, "Thrown from", "Under this m/s she only takes the push, not thrown"), "Thrown between (m/s)"),
+			Pair(F("Explosions", "fFlyMin", flyMin_, 2.0, Min(0.0), Strength, P | D, "Thrown from", "Under this m/s the NPC only takes the push, not thrown"), "Thrown between (m/s)"),
 			F("Explosions", "fFlyMax", flyMax_, 9.0, AtLeast(flyMin_), Strength, P | D, "Thrown at most", "m/s at most"),
-			F("Explosions", "fHighFallAt", highFallAt_, 4.5, Min(0.0), Strength, P | D, "Thrown far from", "From this m/s she is thrown far ('far' rows: Delirium's high fall)"),
-			F("Explosions", "fTumble", tumble_, 10.0, Min(0.0), Strength, P | D, "Tumble", "N s at the head per m/s thrown: she tumbles head first"),
+			F("Explosions", "fHighFallAt", highFallAt_, 4.5, Min(0.0), Strength, P | D, "Thrown far from", "From this m/s the NPC is thrown far ('far' rows: Delirium's high fall)"),
+			F("Explosions", "fTumble", tumble_, 10.0, Min(0.0), Strength, P | D, "Tumble", "N s at the head per m/s thrown: the NPC tumbles head first"),
 
 			// [Down]
-			F("Down", "fWritheTime", writheTime_, 1.0, Min(0.0), Timing, P, "Writhe", "Knocked down, she writhes this many s + the next x oomph (half for a blow)"),
+			F("Down", "fWritheTime", writheTime_, 1.0, Min(0.0), Timing, P, "Writhe", "Knocked down, the NPC writhes this many s + the next x oomph (half for a blow)"),
 			F("Down", "fWritheAdd", writheAdd_, 1.2, Min(0.0), Timing, P | D, "Writhe per oomph", "Extra s of writhing for a harder hit"),
-			F("Down", "fFoetalChance", foetalChance_, 0.3, Range(0.0, 1.0), Reactions, P, "Curl up chance", "Chance she curls up on the ground instead (when no down row decides)"),
+			F("Down", "fFoetalChance", foetalChance_, 0.3, Range(0.0, 1.0), Reactions, P, "Curl up chance", "Chance the NPC curls up on the ground instead (when no down row decides)"),
 
 			// [Hits]
 			F("Hits", "fDamageRef", damageRef_, 15.0, Min(0.1), Strength, P | D, "Damage at 1x", "A hit of this much damage pushes at 1x (arrows, spells, melee, staggers)"),
@@ -155,18 +155,18 @@ namespace delirium
 			F("Hits", "fScaleMax", damageMax_, 3.0, AtLeast(damageMin_), Strength, P | D, "Damage scale at most", "The damage scale at most"),
 			Pair(F("Hits", "fOomphFrom", oomphFrom_, 1.0, kAny, Strength, P | D, "Hard hit from", "Damage scale where a hit starts jolting harder (oomph 0)"), "Hard hit: starts / full"),
 			F("Hits", "fOomphTo", oomphTo_, 2.5, AtLeast(oomphFrom_, 0.01f), Strength, P | D, "Hard hit full", "Damage scale for the full jolt (oomph 1)"),
-			F("Hits", "fOomphSpin", oomphSpin_, 2.0, Min(0.0), Strength, P | D, "Hard hit twist", "The shot twists her x (1 + this x oomph)"),
+			F("Hits", "fOomphSpin", oomphSpin_, 2.0, Min(0.0), Strength, P | D, "Hard hit twist", "The shot twists the NPC x (1 + this x oomph)"),
 			F("Hits", "fOomphPush", oomphPush_, 1.0, Min(0.0), Strength, P | D, "Hard hit push", "The push x (1 + this x oomph)"),
 			F("Hits", "fMaxPush", hitMaxPush_, 150.0, Min(0.0), Strength, P, "Hit push at most",
-				"A spell's or arrow's push at most, N s (past it one shove knocks her over limp)"),
+				"A spell's or arrow's push at most, N s (past it one shove knocks the NPC over limp)"),
 			F("Hits", "fPelvisShare", pelvisShare_, 0.0, Range(0.0, 1.0), Strength, P | D, "At the pelvis",
 				"Share of a standing hit's push at the pelvis instead of the part hit: catch steps instead of folding at the waist"),
-			I("Hits", "iMaxSteps", maxSteps_, 10, Range(0.0, 100.0), Strength, P | D, "Catch steps", "Most catch steps a hit takes before she stops stepping (Delirium's default 6)"),
+			I("Hits", "iMaxSteps", maxSteps_, 10, Range(0.0, 100.0), Strength, P | D, "Catch steps", "Most catch steps a hit takes before the NPC stops stepping (Delirium's default 6)"),
 
 			// [Collision]
 			B("Collision", "bWorldCollision", collision_, true, Advanced, kNone, "World collision",
 				"The body collides with Skyrim's world (floors, stairs, walls, terrain) instead of a flat floor"),
-			F("Collision", "fRadius", colRadius_, 600.0, kAny, Advanced, kNone, "Around her", "How far around her to take the world, game units (70 = 1 m)"),
+			F("Collision", "fRadius", colRadius_, 600.0, kAny, Advanced, kNone, "Around the NPC", "How far around the NPC to take the world, game units (70 = 1 m)"),
 			F("Collision", "fHeight", colHeight_, 300.0, kAny, Advanced, kNone, "Above and below", "How far up and down, game units"),
 			I("Collision", "iMaxTriangles", colMaxTris_, 40000, Min(1000.0), Advanced, kNone, "Triangles at most", "The most world triangles taken (performance)"),
 
@@ -174,9 +174,9 @@ namespace delirium
 			B("Deaths", "bNoKillMoves", noKillMoves_, true, Reactions, P | kRestart, "No killmoves",
 				"Skyrim's killmoves off (a save keeps it: `set killmove to 1` brings them back)"),
 			B("Deaths", "bNoKillCams", noKillCams_, true, Reactions, P | kRestart, "No kill cams", "Kill cams off"),
-			F("Deaths", "fDyingTime", dyingTime_, 3.0, Range(0.0, 10.0), Timing, P, "Dying on her feet",
-				"Seconds a killed NPC may die on her feet in Delirium before the death goes through (0 = die at once)"),
-			Pair(F("Deaths", "fCollapseAfterMin", collapseMin_, 0.8, Range(0.0, 10.0), Timing, P, "Collapses after (min)", "Dying on her feet: s she fights to stay up, at least"), "Collapses after (s)"),
+			F("Deaths", "fDyingTime", dyingTime_, 3.0, Range(0.0, 10.0), Timing, P, "Dying standing",
+				"Seconds a killed NPC may die standing in Delirium before the death goes through (0 = die at once)"),
+			Pair(F("Deaths", "fCollapseAfterMin", collapseMin_, 0.8, Range(0.0, 10.0), Timing, P, "Collapses after (min)", "Dying standing: s the NPC fights to stay up, at least"), "Collapses after (s)"),
 			F("Deaths", "fCollapseAfterMax", collapseMax_, 1.6, AtLeast(collapseMin_), Timing, P, "Collapses after (max)", "And at most"),
 			F("Deaths", "fDyingHealth", dyingHealth_, 70.0, Range(0.0, 99.0), Strength, P, "Killing blow health",
 				"The killing blow as Delirium's shot at this health (0 = a limp flop, under 100 = wounded, falls)"),
@@ -184,14 +184,9 @@ namespace delirium
 			F("Deaths", "fLimpAfterMax", limpMax_, 3.0, AtLeast(limpMin_), Timing, P, "Limp after (max)", "And at most"),
 			F("Deaths", "fWritheChance", dyingWrithe_, 0.5, Range(0.0, 1.0), Reactions, P, "Death writhe chance", "Chance of a weak writhe on the ground first"),
 			F("Deaths", "fCatchFallChance", dyingCatch_, 0.5, Range(0.0, 1.0), Reactions, P, "Break the fall chance", "Chance the arms go out to break the fall"),
-			F("Deaths", "fDeathPush", deathPush_, 1.5, Range(0.0, 6.0), Strength, P, "Death push", "m/s away from the killer as she dies (in place of Skyrim's lunge toward him)"),
-			F("Deaths", "fDeathMaxSpeed", deathMaxSpeed_, 6.0, Min(1.0), Strength, P | D, "Death speed cap", "m/s cap on any body as she dies (Skyrim's death throws limbs at 17 m/s)"),
+			F("Deaths", "fDeathPush", deathPush_, 1.5, Range(0.0, 6.0), Strength, P, "Death push", "m/s away from the killer as the NPC dies (in place of Skyrim's lunge toward the killer)"),
+			F("Deaths", "fDeathMaxSpeed", deathMaxSpeed_, 6.0, Min(1.0), Strength, P | D, "Death speed cap", "m/s cap on any body as the NPC dies (Skyrim's death throws limbs at 17 m/s)"),
 			F("Deaths", "fShotTime", dyingReact_, 1.2, Range(0.0, 5.0), Timing, P | D, "Dying shot", "Seconds the dying shot (reaching for the wound, breaking the fall) plays before a writhe"),
-
-			// [Shouts]
-			F("Shouts", "fThrowFrom", shoutThrowFrom_, 0.6, Range(0.0, 1.01), Strength, P, "Shout throws from",
-				"A shout's stagger from this magnitude throws her (1 word ~0.37, 2 ~0.73, 3 ~0.98)"),
-			F("Shouts", "fFlySpeed", shoutFly_, 9.0, Min(0.0), Strength, P, "Shout throw speed", "m/s she is thrown at, at magnitude 1"),
 
 			// [Reactions] (the rows themselves are read by LoadReactions)
 			F("Reactions", "fHeavyOomph", heavyOomph_, 0.5, Range(0.0, 1.01), Reactions, P | D, "Heavy from", "From this oomph a blow picks the 'heavy' rows"),

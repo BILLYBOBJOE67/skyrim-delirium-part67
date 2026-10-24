@@ -109,7 +109,8 @@ namespace delirium
 
 	namespace
 	{
-		// a destruction spell's element, by its damage effect's resistance (-1: not a destruction spell)
+		// a spell's element, by its damage effect's resistance or its keyword (a shout's fire breath has the keyword, not
+		// always the resistance, and isn't Destruction); -1: not a destruction spell
 		int Element(const RE::MagicItem* a_magic)
 		{
 			if (!a_magic) {
@@ -131,6 +132,15 @@ namespace delirium
 				default:
 					break;
 				}
+				if (m->HasKeywordString("MagicDamageFire")) {
+					return Engine::kFire;
+				}
+				if (m->HasKeywordString("MagicDamageFrost")) {
+					return Engine::kFrost;
+				}
+				if (m->HasKeywordString("MagicDamageShock")) {
+					return Engine::kShock;
+				}
 				destruction |= m->data.associatedSkill == RE::ActorValue::kDestruction;
 			}
 			return destruction ? Engine::kMagic : -1;
@@ -148,6 +158,44 @@ namespace delirium
 				}
 			}
 			return false;
+		}
+
+		// a spell's strongest stagger effect (0: none). Unrelenting Force: Fus 0.75, Fus Ro 1.25, Fus Ro Dah 1.52 (vanilla;
+		// mods raise them): from about 1.5 Skyrim knocks down, the one thing in a shout's data that says it throws
+		float StaggerOf(const RE::MagicItem* a_magic)
+		{
+			float s = 0.0f;
+			if (a_magic) {
+				for (const auto* e : a_magic->effects) {
+					if (e && e->baseEffect && e->baseEffect->HasArchetype(RE::EffectSetting::Archetype::kStagger)) {
+						s = std::max(s, e->effectItem.magnitude);
+					}
+				}
+			}
+			return s;
+		}
+
+		// a voice power's words, 1-3: which of its shout's variations it is (Unrelenting Force: Fus 13E09, Fus Ro 13F39,
+		// Fus Ro Dah 13F3A; dragons' and mods' shouts the same way). 0: no shout has it. The shouts read once (hit sink thread)
+		int ShoutWord(const RE::MagicItem* a_magic)
+		{
+			static std::unordered_map<const RE::MagicItem*, int> words;
+			static bool                                          read = false;
+			if (!read) {
+				read = true;
+				if (auto* dh = RE::TESDataHandler::GetSingleton()) {
+					for (auto* shout : dh->GetFormArray<RE::TESShout>()) {
+						for (int i = 0; shout && i < static_cast<int>(RE::TESShout::VariationIDs::kTotal); ++i) {
+							if (const auto* spell = shout->variations[i].spell) {
+								words.emplace(spell, i + 1);
+							}
+						}
+					}
+				}
+				logger::info("shouts: {} spells by word", words.size());
+			}
+			const auto it = words.find(a_magic);
+			return it != words.end() ? it->second : 0;
 		}
 
 		// a spell's health damage (its harmful health effects' magnitudes; perks and resistances left out)
@@ -198,11 +246,14 @@ namespace delirium
 					h.damage = SpellDamage(magic);
 					h.element = Element(magic);
 					h.shout = magic && magic->GetSpellType() == RE::MagicSystem::SpellType::kVoicePower;
+					h.word = h.shout ? ShoutWord(magic) : 0;
+					h.stagger = h.shout ? StaggerOf(magic) : 0.0f;
 					RecordHit(target->GetFormID(), h);
 				}
 				int  kind = -1;
 				bool channel = false;  // a concentration spell: hits as long as it is held
 				bool staggers = false;  // a spell with a stagger effect: always brings her in, like any stagger
+				bool breath = false;    // a shout's fire / frost / shock: a cone, no missile to wait for
 				if (auto* w = src ? src->As<RE::TESObjectWEAP>() : nullptr) {
 					if (w->IsBow() || w->IsCrossbow()) {
 						kind = Engine::kArrow;
@@ -215,6 +266,8 @@ namespace delirium
 					kind = Element(m);
 					channel = m->GetCastingType() == RE::MagicSystem::CastingType::kConcentration;
 					staggers = Staggers(m);
+					breath = m->GetSpellType() == RE::MagicSystem::SpellType::kVoicePower &&
+					         (kind == Engine::kFire || kind == Engine::kFrost || kind == Engine::kShock);
 				}
 				if (kind < 0) {
 					return RE::BSEventNotifyControl::kContinue;  // a melee hit, a heal, a ward, ...
@@ -230,7 +283,7 @@ namespace delirium
 					last = now;
 				}
 				// a spell's hit comes before its missile's impact is recorded: look for it a frame later
-				g_tasks->AddTask([h = target->GetHandle(), c = a_event->cause ? a_event->cause->GetHandle() : RE::ObjectRefHandle{}, kind, spell, channel, staggers]() {
+				g_tasks->AddTask([h = target->GetHandle(), c = a_event->cause ? a_event->cause->GetHandle() : RE::ObjectRefHandle{}, kind, spell, channel, staggers, breath]() {
 					auto t = h.get();
 					if (!t) {
 						return;
@@ -247,8 +300,11 @@ namespace delirium
 					RE::NiPoint3 at, vel;
 					const bool   exact = RecentImpact(t.get(), 0.5f, at, vel, spell ? 1 : 0);
 					logger::info("  hit kind {}, impact {}", kind, exact);  // trace
-					if (spell && !exact) {
+					if (spell && !exact && !breath) {
 						return;  // a spell without a missile or beam: a stream, a cloak, a rune
+					}
+					if (!exact) {
+						at = t->GetPosition();  // a breath: on her, from the shouter (below)
 					}
 					if (auto cause = c.get()) {
 						// the way it flew must be away from the shooter (arrows: reversed); a missile's is only a unit vector, a beam's may be nothing

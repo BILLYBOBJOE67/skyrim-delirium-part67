@@ -48,8 +48,6 @@ namespace delirium
 		f("Deaths.fCollapseAfterMin", collapseMin_);
 		f("Deaths.fCollapseAfterMax", collapseMax_);
 		f("Reactions.fHeavyOomph", heavyOomph_);
-		f("Shouts.fThrowFrom", shoutThrowFrom_);
-		f("Shouts.fFlySpeed", shoutFly_);
 		b("Arrows.bShotReaction", arrows_);
 		f("Arrows.fPush", arrowPush_);
 		f("Arrows.fWoundedBelow", wounded_);
