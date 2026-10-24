@@ -37,6 +37,20 @@ namespace delirium
 		V3          inParent;  // the same joint in the parent's frame
 	};
 
+	// body/show.cpp: an NPC's bones as her meshes read them while Delirium writes them, and the skins moved over to them
+	struct ShownPose
+	{
+		struct Bone
+		{
+			RE::NiTransform drawn;  // what her skins read
+			RE::NiTransform next;   // the finished pose, drawn from the next render frame on (PublishShown)
+		};
+		std::unordered_map<RE::NiAVObject*, Bone>      bones;
+		std::vector<RE::NiPointer<RE::NiSkinInstance>> skins;
+		int                                            published{}, held{};  // frames, for the release log
+		bool                                           heldLast{};          // the last Present held her pose back
+	};
+
 	class Engine
 	{
 	public:
@@ -172,9 +186,7 @@ namespace delirium
 			int                                calls{}, poses{};  // animation updates / pose copies since the last log line
 			// every node of her 3D as we drew it last frame: put back as previousWorld after WriteBones (see KeepPrevious)
 			std::unordered_map<RE::NiAVObject*, RE::NiTransform> drawnWorld;
-			// body/show.cpp: her bones as the renderer reads them (the finished pose), and the skins moved over to them
-			std::unordered_map<RE::NiAVObject*, RE::NiTransform> shown;
-			std::vector<RE::NiPointer<RE::NiSkinInstance>>       shownSkins;
+			ShownPose                          shown;  // her bones as her meshes read them (body/show.cpp)
 			float                              dtSum{};
 			float                              scale{ 1.0f };  // the NPC's skeleton scale
 			bool                               logged{};

@@ -149,6 +149,7 @@ namespace delirium
 			g_loadSinkOn = true;
 		}
 		HookArrows();
+		HookPresent();
 		NoKillMoves();
 		logger::info("ready: {} on body {}, rig {} (build faces {:.2} rad)", usingGta_ ? fredPath_ : std::string("own character"), buildPath_, rigPath_, rigYaw_);
 		return true;
@@ -231,6 +232,7 @@ namespace delirium
 			Release(active_.size() - 1, "core unloading");
 		}
 		UnhookUpdate3D();
+		UnhookPresent();
 		if (build_) {
 			dl.nm_build_destroy(build_);
 			build_ = nullptr;

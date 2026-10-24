@@ -84,6 +84,10 @@ namespace delirium
 	void UnhookUpdate3D();
 	void HookArrows();  // below, with OnArrow
 	void UnhookArrows();
+	void HookPresent();  // the render frame's end, for PublishShown
+	void UnhookPresent();
+	void PublishShown();  // body/show.cpp: every NPC's finished pose into what her skins read
+	inline std::atomic<bool> g_atPresent{ false };  // Present hooked: Show's pose waits for it (body/show.cpp)
 	// a_spell: 0 arrows only, 1 spells only, -1 any
 	bool RecentImpact(RE::TESObjectREFR* a_ref, float a_maxAge, RE::NiPoint3& a_at, RE::NiPoint3& a_vel, int a_spell = -1);
 	inline std::atomic<int> g_count{ 0 };  // active agents, read without the lock by every actor's animation update

@@ -51,6 +51,59 @@ namespace delirium
 	}
 
 
+	// IDXGISwapChain::Present (vtable slot 8) of Skyrim's window: the end of a render frame (main thread, Skyrim counts
+	// the next one right after it), where body/show.cpp hands the renderer the poses finished since. Patched by the core
+	// like UpdateActor3DPosition and put back when it unloads.
+	namespace
+	{
+		using PresentFn = HRESULT (*)(void*, UINT, UINT);
+		std::uintptr_t* g_presentSlot{};
+		PresentFn       g_origPresent{};
+
+		HRESULT PresentHook(void* a_chain, UINT a_sync, UINT a_flags)
+		{
+			PublishShown();
+			return g_origPresent(a_chain, a_sync, a_flags);
+		}
+	}
+
+	void HookPresent()
+	{
+		if (g_presentSlot) {
+			return;
+		}
+		auto* renderer = RE::BSGraphics::Renderer::GetSingleton();
+		auto* chain = renderer ? renderer->GetRuntimeData().renderWindows[0].swapChain : nullptr;
+		if (!chain) {
+			logger::warn("Present not hooked (no swap chain): her meshes draw each pose as soon as it is done");
+			return;
+		}
+		auto* vt = *reinterpret_cast<std::uintptr_t**>(chain);
+		g_presentSlot = vt + 8;
+		g_origPresent = reinterpret_cast<PresentFn>(*g_presentSlot);
+		PatchSlot(g_presentSlot, reinterpret_cast<std::uintptr_t>(&PresentHook));
+		g_atPresent = true;
+		logger::info("hooked Present (vtable {:X}, was {:X})", reinterpret_cast<std::uintptr_t>(vt), reinterpret_cast<std::uintptr_t>(g_origPresent));
+	}
+	void UnhookPresent()
+	{
+		if (!g_presentSlot) {
+			return;
+		}
+		g_atPresent = false;
+		if (*g_presentSlot == reinterpret_cast<std::uintptr_t>(&PresentHook)) {
+			PatchSlot(g_presentSlot, reinterpret_cast<std::uintptr_t>(g_origPresent));
+		} else {
+			// another mod hooked Present over ours since and calls ours on: this copy of the core stays loaded (with no NPC
+			// left, its hook only passes Present on)
+			HMODULE self{};
+			GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN, reinterpret_cast<LPCWSTR>(&PresentHook), &self);
+			logger::warn("Present hooked over ours by another mod: this core stays loaded");
+		}
+		g_presentSlot = nullptr;
+	}
+
+
 	// Projectiles. AddImpact (vtable slot 0xBD) is where an arrow or a spell's missile or beam meets something: what,
 	// where and how fast (the velocity comes in reversed for arrows; it is checked against the shooter). Skyrim's hit
 	// (TESHitEvent) comes after it, without a point, and says what hit (bow, spell) and whether it landed (not blocked).
