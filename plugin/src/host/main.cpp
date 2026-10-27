@@ -416,6 +416,32 @@ namespace
 		}
 	};
 
+	// The actor's bump reaction (AE 37409, SE 36415; called by the bump handler, its delayed small bump and one more):
+	// Skyrim puts her on a package to get out of the way and says a line; a big bump (the bumper sprinting or fast)
+	// also plays ActionBumpedInto, its baked stumble. Nothing else plays that action. When the core takes a big bump,
+	// Skyrim's runs as a small one (the package and the line, no stumble) and Delirium plays it on the body.
+	struct Bump
+	{
+		static void thunk(RE::Actor* a_this, RE::Actor* a_bumper, bool a_big, bool a_silent)
+		{
+			if (a_big && a_this) {
+				if (core::Use c; c && c->onBump(a_this, a_bumper)) {
+					a_big = false;
+				}
+			}
+			func(a_this, a_bumper, a_big, a_silent);
+		}
+		static inline void (*func)(RE::Actor*, RE::Actor*, bool, bool){};
+
+		static void Install()
+		{
+			// mov rax, rsp; push rdi; push r12 (SE and AE)
+			static constexpr std::uint8_t kStart[]{ 0x48, 0x8B, 0xC4, 0x57, 0x41, 0x54 };
+			func = reinterpret_cast<decltype(func)>(
+				HookEntry(REL::Relocation<std::uintptr_t>{ REL::RelocationID(36415, 37409) }.address(), kStart, reinterpret_cast<void*>(&thunk), "bump"));
+		}
+	};
+
 	// An NPC's death (Character::KillImpl, vtable 0x10E; the player's is PlayerCharacter's, not hooked): the core may
 	// hold it back a few seconds, so she dies on her feet in Delirium first, then calls it again itself
 	struct Kill
@@ -549,6 +575,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	GetUpCheck::Install();
 	ProcessHitData::Install();
 	Stagger::Install();
+	Bump::Install();
 	Kill::Install();
 	SKSE::GetMessagingInterface()->RegisterListener(OnMessage);
 	return true;

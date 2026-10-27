@@ -48,9 +48,10 @@ namespace
 	bool OnKill(RE::Actor* a, RE::Actor* k, float d, bool e, bool r) { return Engine::Get().OnKill(a, k, d, e, r); }
 	void Menu(int p) { Engine::Get().Menu(p); }
 	void SettingsFileChanged() { Engine::Get().SettingsFileChanged(); }
+	bool OnBump(RE::Actor* a, RE::Actor* b) { return Engine::Get().OnBump(a, b); }
 
 	constexpr delirium::CoreApi kApi{ delirium::kCoreApi, Init, DataLoaded, Shutdown, Busy, AfterAnimation, AfterPose, DriveRagdoll, KeepsDown,
-		OnKey, Command, OnHitData, OnStagger, OnKill, Menu, SettingsFileChanged };
+		OnKey, Command, OnHitData, OnStagger, OnKill, Menu, SettingsFileChanged, OnBump };
 }
 
 extern "C" __declspec(dllexport) const delirium::CoreApi* DeliriumCore_Get() { return &kApi; }

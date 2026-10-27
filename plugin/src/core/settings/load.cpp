@@ -213,6 +213,7 @@ namespace delirium
 			{ "stand.shout.word1", "step" },
 			{ "stand.shout.word2", "step, push:2" },
 			{ "stand.shout.word3", "step, throw:9" },
+			{ "stand.bump", "step" },
 			{ "fire", "burn" },
 			{ "shock", "shock" },
 			{ "frost", "" },

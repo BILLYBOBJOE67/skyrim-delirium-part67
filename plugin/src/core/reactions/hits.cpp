@@ -432,4 +432,66 @@ namespace delirium
 		React(a_target, b);
 	}
 
+	bool Engine::OnBump(RE::Actor* a_target, RE::Actor* a_bumper)
+	{
+		// on her feet only (Skyrim doesn't bump a ragdoll; a falmer's balance can't take a step): else Skyrim's stumble
+		if (!ready_ || !bumps_ || !Eligible(a_target, "bump", true) || a_target->IsInRagdollState() ||
+			a_target->AsActorState()->GetKnockState() != RE::KNOCK_STATE_ENUM::kNormal || Hunched(a_target)) {
+			return false;
+		}
+		// Skyrim bumps every frame the two touch: one push per run-in, the frames after it only keep its stumble off
+		{
+			const auto       now = std::chrono::steady_clock::now();
+			std::scoped_lock l(bumpLock_);
+			auto&            last = bumpAt_[a_target->GetFormID()];
+			const bool       again = now - last < std::chrono::duration<float>(bumpRepeat_);
+			last = now;
+			if (bumpAt_.size() > 64) {
+				std::erase_if(bumpAt_, [&](const auto& p) { return now - p.second > std::chrono::seconds(10); });
+			}
+			if (again) {
+				return true;
+			}
+		}
+		g_tasks->AddTask([h = a_target->GetHandle(), s = a_bumper ? a_bumper->GetHandle() : RE::ActorHandle{}]() {
+			if (auto t = h.get()) {
+				auto by = s.get();
+				Engine::Get().Bump(t.get(), by.get());
+			}
+		});
+		return true;
+	}
+
+	void Engine::Bump(RE::Actor* a_target, RE::Actor* a_bumper)
+	{
+		// along the bumper's run (flat), else away from them, else back
+		RE::NiPoint3 d, run;
+		const char*  why = "back";
+		if (a_bumper && a_bumper != a_target) {
+			a_bumper->GetLinearVelocity(run);
+			run.z = 0.0f;
+			if (run.Length() > 50.0f) {
+				d = run;
+				why = "along the run";
+			} else {
+				d = a_target->GetPosition() - a_bumper->GetPosition();
+				d.z = 0.0f;
+				why = "from the bumper";
+			}
+		}
+		if (d.Length() < 1.0f) {
+			const float heading = a_target->data.angle.z;
+			d = { -std::sin(heading), -std::cos(heading), 0.0f };
+		}
+		d.Unitize();
+		Blow b;
+		b.what = "bump";
+		b.type = kBlowBump;
+		b.by = a_bumper && a_bumper != a_target ? RE::ActorPtr(a_bumper) : RE::ActorPtr{};
+		b.dir = { d.x, d.y, 0.0f };
+		b.push = bumpPush_ * Rand(0.9f, 1.1f);
+		b.note = fmt::format("{:08X} at {:.0f} units/s, {}", a_bumper ? a_bumper->GetFormID() : 0, run.Length(), why);
+		React(a_target, b);
+	}
+
 }

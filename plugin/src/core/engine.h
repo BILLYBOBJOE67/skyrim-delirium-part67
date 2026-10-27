@@ -119,6 +119,10 @@ namespace delirium
 		// Skyrim staggered her (a_started: it really did now): Delirium's push takes the stagger's place on the body
 		void OnStagger(RE::Actor* a_target, float a_magnitude, RE::Actor* a_source, bool a_started);
 		void Stagger(RE::Actor* a_target, float a_magnitude, RE::Actor* a_source);  // main thread, a frame later
+		// someone ran into her hard (Skyrim's big bump, before it): true when Delirium plays it (Bump, a frame later) in
+		// place of Skyrim's stumble
+		bool OnBump(RE::Actor* a_target, RE::Actor* a_bumper);
+		void Bump(RE::Actor* a_target, RE::Actor* a_bumper);  // main thread
 		// her killing blow (Character::KillImpl, before Skyrim's): true holds the death back, at 1 health, for up to
 		// [Deaths] fDyingTime s: she dies on her feet in Delirium (wounded shot, stagger, collapse), then really dies
 		bool OnKill(RE::Actor* a_actor, RE::Actor* a_attacker, float a_damage, bool a_sendEvent, bool a_ragdollInstant);
@@ -328,8 +332,8 @@ namespace delirium
 			int          word{};         // a shout's words, 1-3 (its rows: stand.shout.word1-3); 0: not a shout
 		};
 		// the reaction table ([Reactions]): a blow's phase, type and strength pick one rule, a base behaviour and its layers
-		enum BlowType : int { kBlowOther, kBlowMelee, kBlowArrow, kBlowSpell, kBlowBlast, kBlowStagger, kBlowKnock, kBlowShout };
-		static const char* TypeName(int a_type);  // other, melee, arrow, spell, blast, stagger, knock, shout
+		enum BlowType : int { kBlowOther, kBlowMelee, kBlowArrow, kBlowSpell, kBlowBlast, kBlowStagger, kBlowKnock, kBlowShout, kBlowBump };
+		static const char* TypeName(int a_type);  // other, melee, arrow, spell, blast, stagger, knock, shout, bump
 		void               Knocked(Active& a, const V3& a_vel);  // Skyrim knocked her down itself (a shout, a trap, a script): her reaction
 		struct Rule
 		{
@@ -481,6 +485,11 @@ namespace delirium
 		float         oomphPush_{ 1.0f };      // [Hits] fOomphPush: the push x(1 + this x oomph)
 		float         staggerHitBoost_{ 0.5f };  // [Stagger] fHitBoost: a blow that staggers pushes x(1 + this x magnitude)
 		float         staggerMaxPush_{ 200.0f };  // [Stagger] fMaxPush: a stagger's push at most on her feet (in place of the blow's or spell's cap)
+		bool          bumps_{ true };          // [Bump] bReplace: a big bump (run into) is played by Delirium, not Skyrim's stumble
+		float         bumpPush_{ 50.0f };      // [Bump] fPush: N s, along the bumper's run
+		float         bumpRepeat_{ 1.0f };     // [Bump] fRepeatAfter: s of no contact before a bump pushes again
+		std::mutex    bumpLock_;               // bumpAt_: bumps come on any thread
+		std::unordered_map<RE::FormID, std::chrono::steady_clock::time_point> bumpAt_;  // her last bump (any, pushed or not)
 		bool          melee_{ true };           // [Melee] bReact: blows push her while Delirium has her
 		bool          blasts_{ true };          // [Explosions] bPush: an explosion pushes everyone it catches
 		float         blastPush_{ 90.0f };      // [Explosions] fPush: N s at its centre for fDamageRef damage

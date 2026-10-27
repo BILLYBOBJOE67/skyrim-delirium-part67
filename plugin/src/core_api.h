@@ -5,7 +5,7 @@
 // swapped while the game runs ("reload" in the command file). Bump kCoreApi when this struct changes.
 namespace delirium
 {
-	inline constexpr std::uint32_t kCoreApi = 5;
+	inline constexpr std::uint32_t kCoreApi = 6;
 
 	struct CoreApi
 	{
@@ -35,6 +35,9 @@ namespace delirium
 		void (*menu)(int a_page);
 		// main thread: SkyrimDelirium.ini's write time changed (the core reads it again unless the change is its own save)
 		void (*settingsFileChanged)();
+		// a big bump (AE 37409: someone ran into her), before Skyrim's: true when Delirium plays it, then Skyrim's runs as a
+		// small bump (out of the way, a line) without its stumble. a_bumper may be null. Any thread the bump comes on
+		bool (*onBump)(RE::Actor* a_actor, RE::Actor* a_bumper);
 	};
 
 	using GetCoreApi = const CoreApi* (*)();

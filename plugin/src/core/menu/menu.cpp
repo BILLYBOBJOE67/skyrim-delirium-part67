@@ -358,6 +358,13 @@ namespace delirium
 					a_e.MenuRow("stand.stagger", "Staggers");
 					Unindent();
 				}
+				if (area("Running into NPCs", "Sprinting or running into an NPC: Delirium plays their stumble in place of Skyrim's (they still "
+											   "step out of the way and say their line).")) {
+					set("Bump", "bReplace");
+					set("Bump", "fPush");
+					a_e.MenuRow("stand.bump", "Run into");
+					Unindent();
+				}
 				if (area("Arrows", "An arrow or bolt that hits a living NPC: always brings them in.")) {
 					set("Arrows", "bShotReaction");
 					set("Arrows", "fPush");

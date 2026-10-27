@@ -114,6 +114,14 @@ namespace delirium
 			F("Stagger", "fMaxPush", staggerMaxPush_, 200.0, Min(0.0), Strength, P, "Stagger push at most",
 				"A stagger while standing pushes at most this, N s, in place of the blow's or spell's cap (past ~200 the NPC may fall)"),
 
+			// [Bump]
+			B("Bump", "bReplace", bumps_, true, Reactions, P, "Bumps",
+				"Running into an NPC (sprinting, fast): Delirium plays their stumble (the stand.bump row) in place of Skyrim's. "
+				"They still step out of the way and say their line"),
+			F("Bump", "fPush", bumpPush_, 50.0, Min(0.0), Strength, P, "Bump push", "Push when you run into an NPC, N s, along your run"),
+			F("Bump", "fRepeatAfter", bumpRepeat_, 1.0, Min(0.0), Timing, P | D, "Bump again after",
+				"Skyrim bumps every frame you touch: one push per run-in, and a new one only after this many seconds without contact"),
+
 			// [Melee]
 			B("Melee", "bReact", melee_, true, Reactions, P, "Melee blows",
 				"While Delirium has the NPC, every blow reacts: a light one flinches, a heavier one makes them step, past that they fall"),

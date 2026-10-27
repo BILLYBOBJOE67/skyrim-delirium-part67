@@ -7,7 +7,7 @@ namespace delirium
 {
 	namespace
 	{
-		constexpr const char* kTypes[]{ "melee", "arrow", "spell", "blast", "stagger", "knock", "shout", "other" };
+		constexpr const char* kTypes[]{ "melee", "arrow", "spell", "blast", "stagger", "knock", "shout", "bump", "other" };
 		constexpr const char* kElements[]{ "arrow", "frost", "fire", "shock", "magic" };
 		constexpr const char* kBands[]{ "light", "heavy", "lethal" };
 
@@ -61,7 +61,7 @@ namespace delirium
 		{
 			static constexpr std::pair<std::string_view, const char*> kWords[]{ { "melee", "melee hits" }, { "arrow", "arrows" }, { "spell", "spells" },
 				{ "blast", "explosions" }, { "stagger", "staggers, no hit" }, { "knock", "knocked down by Skyrim" }, { "shout", "shouts" },
-				{ "other", "anything else" }, { "frost", "frost" }, { "fire", "fire" }, { "shock", "shock" }, { "magic", "other magic" },
+				{ "bump", "run into" }, { "other", "anything else" }, { "frost", "frost" }, { "fire", "fire" }, { "shock", "shock" }, { "magic", "other magic" },
 				{ "light", "light" }, { "heavy", "heavy" }, { "lethal", "killing blow" }, { "far", "far (high fall)" }, { "held", "after dying standing" },
 				{ "word1", "1st word (Fus)" }, { "word2", "2nd word (Fus Ro)" }, { "word3", "3rd word (Fus Ro Dah)" } };
 			if (a_key.find(".stagger.light") != std::string_view::npos) {
@@ -99,6 +99,9 @@ namespace delirium
 			}
 			if (has("stagger")) {
 				out += "Staggers with no melee hit behind them: an enemy recoiling off your block, a stagger spell or effect, an explosion's stagger.\n";
+			}
+			if (has("bump")) {
+				out += "Run into: you (or anyone) sprinting or running into the NPC, in place of Skyrim's stumble. They still step out of the way.\n";
 			}
 			if (has("light")) {
 				out += has("stagger") ? "Weak: the stagger pushes under Flinch below (Melee, Fine tuning). Most block recoils.\n"

@@ -67,6 +67,9 @@ namespace delirium
 		f("Stagger.fMinShare", staggerMin_);
 		f("Stagger.fHitBoost", staggerHitBoost_);
 		f("Stagger.fMaxPush", staggerMaxPush_);
+		b("Bump.bReplace", bumps_);
+		f("Bump.fPush", bumpPush_);
+		f("Bump.fRepeatAfter", bumpRepeat_);
 		f("Hits.fDamageRef", damageRef_);
 		f("Hits.fExponent", damageExp_);
 		f("Hits.fScaleMin", damageMin_);

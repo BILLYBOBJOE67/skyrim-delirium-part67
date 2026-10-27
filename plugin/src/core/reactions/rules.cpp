@@ -93,8 +93,8 @@ namespace delirium
 
 	const char* Engine::TypeName(int a_type)
 	{
-		static constexpr const char* kNames[]{ "other", "melee", "arrow", "spell", "blast", "stagger", "knock", "shout" };
-		return kNames[std::clamp(a_type, 0, 7)];
+		static constexpr const char* kNames[]{ "other", "melee", "arrow", "spell", "blast", "stagger", "knock", "shout", "bump" };
+		return kNames[std::clamp(a_type, 0, 8)];
 	}
 
 	const char* Engine::ElementName(int a_element)
