@@ -163,9 +163,17 @@ namespace delirium
 			NmWorld*                           world{};
 			RE::NiPoint3                       origin;  // game units; physics works in metres from here
 			RE::NiPoint3                       colCenter;  // game units: where the collision patch was gathered around
+			// the 3D she was taken on, held: a script can swap it under us (outfit, disable / enable, Helgen's scenes) and
+			// free the bones below; held, they stay alive until we let go, and a new 3D lets her go (Same3D)
+			RE::NiPointer<RE::NiAVObject>      root;
 			std::array<RE::NiAVObject*, 21>    ref{};
 			std::array<RE::NiAVObject*, 21>    ja{}, jb{};  // the bones whose midpoint is each part's joint
 			RE::NiAVObject*                    com{};  // NPC COM: carries both the pelvis and the spine branches
+			bool                               looseBones{};  // a creature turned on in [Creatures]: bones also matched without their tag (SameBone)
+			bool                               fitted{};      // her body was rebuilt on her own bones (body/fit.cpp), not the rig's person
+			// each part's joint in its own frame and in its parent's, at her size (a person: the rig's times her scale)
+			std::array<V3, 21>                 anchor{}, inParent{};
+			std::array<float, 21>              partMass{};    // each part's mass at her size, kg
 			// snap trace around the fall (knock until 0.6 s after calibration): the drawn pose at each pose copy / root move
 			bool                               haveTrace{};
 			std::array<RE::NiTransform, 21>    trBone{};
@@ -369,6 +377,9 @@ namespace delirium
 		void KillNow(const Held& a_held, const char* a_why);  // main thread: Skyrim's kill, with the killer and blow it had
 		void Fly(Active& a, RE::Actor* a_actor, const Blow& b);  // thrown: arms windmill / legs pedal or tucked in a roll, then a catch
 		bool Eligible(RE::Actor* a_target, const char* a_what, bool a_quiet) const;  // a person Delirium can take
+		bool Creature(RE::Actor* a_actor) const;  // a draugr, skeleton or falmer whose kind [Creatures] turns on
+		void PersonOffsets(Active& a) const;      // body/fit.cpp: a person's joint offsets and masses: the rig's, at her scale
+		NmBuild* FitCreature(Active& a, RE::Actor* a_actor) const;  // body/fit.cpp: the body rebuilt on her own bones, its offsets in a
 		void StartBurn(Active& a, const V3& a_away);  // fire: the arms beat at the flames, a stumble away
 		void StopBurn(Active& a);
 		void StartShock(Active& a);  // lightning: jolts through the body
@@ -449,6 +460,7 @@ namespace delirium
 		std::unordered_set<RE::FormID>       heldDied_;  // killed after a hold: her death ragdoll gets no new shot or push
 		std::atomic<RE::Actor*>              letKill_{ nullptr };  // the kill we make ourselves goes through
 		bool          aboutJoint_{ true };   // [Ragdoll] bTurnAboutJoint: a muscle turns the limb about its joint (the spin and the swing that goes with it)
+		bool          draugr_{ true }, skeletons_{ false }, falmer_{ false };  // [Creatures] bDraugr / bSkeletons / bFalmer: these creatures too (a person's bones)
 		// Skyrim's joints' own friction, by joint data (it may be shared between ragdolls): the original and how many hold it
 		std::unordered_map<RE::hkpConstraintData*, std::pair<float, int>> eased_;
 		void EaseJoints(Active& a);
@@ -495,8 +507,8 @@ namespace delirium
 		float         meleeChop_{ 0.35f };      // [Melee] fChop: an overhead chop pushes this much down too
 		float         flinchBelow_{ 55.0f };    // [Melee] fFlinchBelow: a lighter blow flinches, a heavier one steps
 		float         channelLinger_{ 0.6f };  // [Spells] fChannelLinger: s a channel's reaction lasts after its last hit
-		float         spellChance_[2]{ 0.3f, 0.5f };    // [Spells] fStartChance / fStartChanceHurt: a missile brings her in (full health, near death)
-		float         channelChance_[2]{ 0.1f, 0.2f };  // [Spells] fChannelChance / fChannelChanceHurt: per second of channel, the same way
+		float         spellChance_[2]{ 0.5f, 0.8f };    // [Spells] fStartChance / fStartChanceHurt: a missile brings her in (full health, near death)
+		float         channelChance_[2]{ 0.3f, 0.6f };  // [Spells] fChannelChance / fChannelChanceHurt: per second of channel, the same way
 		std::unordered_map<RE::FormID, std::chrono::steady_clock::time_point> channelTick_;  // last channel tick on someone not in Delirium (under lock_)
 		float StartChance(RE::Actor* a_target, const float (&a_chance)[2]) const;  // by her health: the more hurt, the likelier
 		float         wounded_{ 0.2f };     // [Arrows] fWoundedBelow: under this share of health a hit takes her down

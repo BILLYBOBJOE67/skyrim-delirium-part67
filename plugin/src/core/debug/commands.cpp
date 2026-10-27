@@ -14,6 +14,8 @@ namespace delirium
 	//                            Ice Spike, Icy Spear, Ice Storm, Lightning Bolt, Chain Lightning
 	//   fus <hex formid> [force] Skyrim's own push from the player (as Fus Ro Dah: force 15), no Delirium involved
 	//   spawn <hex base> [dist]  place that NPC / leveled NPC in front of the player (3DECD = a melee bandit)
+	//   undead [dist]            place a draugr, a skeleton and a falmer side by side in front of the player
+	//   npcs <word>              log the non-unique NPCs whose race editor ID contains the word (bases for spawn)
 	//   near                     log the NPCs near the player
 	//   nodes <hex formid>       log every node of that NPC's 3D with its address (Cheat Engine breakpoints)
 	//   show on|off              her meshes read the finished pose (default) / the live bones (before/after check)
@@ -148,6 +150,72 @@ namespace delirium
 				} else {
 					logger::info("spawn: no base object {}", w[1]);
 				}
+			} else if (w[0] == "undead") {
+				// one draugr, one skeleton, one falmer side by side in front of the player: the first non-unique named NPC
+				// of each race (race editor ID: exact, else ending in it as mods rename them (TDC_DraugrRace), else containing the word)
+				auto* player = RE::PlayerCharacter::GetSingleton();
+				auto* data = RE::TESDataHandler::GetSingleton();
+				const float dist = w.size() >= 2 ? std::stof(std::string(w[1])) : 300.0f;
+				const char* races[] = { "DraugrRace", "SkeletonRace", "FalmerRace" };
+				const char* words[] = { "draugr", "skeleton", "falmer" };
+				auto lower = [](std::string s) {
+					std::ranges::transform(s, s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+					return s;
+				};
+				for (int k = 0; k < 3 && player && data; ++k) {
+					RE::TESNPC* pick = nullptr;
+					for (const int pass : { 0, 1, 2 }) {
+						for (auto* npc : data->GetFormArray<RE::TESNPC>()) {
+							auto* race = npc ? npc->GetRace() : nullptr;
+							if (!race || npc->IsUnique() || !npc->GetName() || !*npc->GetName()) {
+								continue;
+							}
+							const std::string id = race->GetFormEditorID() ? race->GetFormEditorID() : "";
+							const std::string_view r = races[k];
+							const bool ok = pass == 0 ? id == r : pass == 1 ? id.ends_with(r) : lower(id).find(words[k]) != std::string::npos;
+							if (ok) {
+								pick = npc;
+								break;
+							}
+						}
+						if (pick) {
+							break;
+						}
+					}
+					if (!pick) {
+						logger::warn("undead: no {} NPC found", words[k]);
+						continue;
+					}
+					if (auto ref = player->PlaceObjectAtMe(pick, false)) {
+						const float h = player->GetAngleZ();
+						const float side = (k - 1) * 150.0f;  // left, middle, right
+						auto pos = player->GetPosition() + RE::NiPoint3(std::sin(h), std::cos(h), 0.0f) * dist +
+						           RE::NiPoint3(std::cos(h), -std::sin(h), 0.0f) * side;
+						pos.z += 5.0f;
+						ref->SetPosition(pos);
+						ref->SetAngle({ 0.0f, 0.0f, h + 3.14159265f });
+						logger::info("undead: {:08X} '{}' (base {:08X}, race {}) at ({:.0f} {:.0f} {:.0f})", ref->GetFormID(), ref->GetName(), pick->GetFormID(),
+							pick->GetRace()->GetFormEditorID(), pos.x, pos.y, pos.z);
+					}
+				}
+			} else if (w[0] == "npcs" && w.size() >= 2) {
+				// every non-unique named NPC whose race editor ID contains the word: base id, name, race id, race editor ID
+				std::string want = w[1];
+				std::ranges::transform(want, want.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+				int n = 0;
+				for (auto* npc : RE::TESDataHandler::GetSingleton()->GetFormArray<RE::TESNPC>()) {
+					auto* race = npc ? npc->GetRace() : nullptr;
+					if (!race || npc->IsUnique() || !npc->GetName() || !*npc->GetName()) {
+						continue;
+					}
+					std::string id = race->GetFormEditorID() ? race->GetFormEditorID() : "";
+					std::string low = id;
+					std::ranges::transform(low, low.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+					if (low.find(want) != std::string::npos && n++ < 200) {
+						logger::info("npcs: {:08X} '{}' race {:08X} {}", npc->GetFormID(), npc->GetName(), race->GetFormID(), id);
+					}
+				}
+				logger::info("npcs: {} with '{}' in the race", n, want);
 			} else if (w[0] == "gain" && w.size() >= 2) {
 				gain_ = std::clamp(std::stof(std::string(w[1])), 0.0f, 10.0f);
 				logger::info("torque gain {:.2f}", gain_);
@@ -159,8 +227,11 @@ namespace delirium
 				auto* player = RE::PlayerCharacter::GetSingleton();
 				for (auto& h : RE::ProcessLists::GetSingleton()->highActorHandles) {
 					if (auto a = h.get(); a && a.get() != player) {
-						logger::info("near: {:08X} '{}' {:.0f} units, ragdoll {}, dead {}", a->GetFormID(), a->GetName(),
-							a->GetPosition().GetDistance(player->GetPosition()), a->IsInRagdollState(), a->IsDead());
+						auto* race = a->GetRace();
+						logger::info("near: {:08X} '{}' {:.0f} units, ragdoll {}, dead {}, race {} flags {:08X}{}", a->GetFormID(), a->GetName(),
+							a->GetPosition().GetDistance(player->GetPosition()), a->IsInRagdollState(), a->IsDead(), race ? race->GetFormEditorID() : "?",
+							race ? race->data.flags.underlying() : 0u,
+							race && race->data.flags.any(RE::RACE_DATA::Flag::kNoKnockdowns) ? " (no knockdowns)" : "");
 					}
 				}
 			} else if (w[0] == "show" && w.size() >= 2) {

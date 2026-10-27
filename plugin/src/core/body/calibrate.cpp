@@ -100,10 +100,11 @@ namespace delirium
 						const int   ab = animIsA ? sm.boneA : sm.boneB;
 						const char* an = anim->bones[ab].name.c_str();
 						for (int j = 0; j < 21; ++j) {
-							if (rig_[j].ref == an && rig_[j].jointA == an && rig_[j].jointB == an) {
+							const bool same = SameBone(rig_[j].ref, an, a.looseBones);
+							if (same && rig_[j].ref == rig_[j].jointA && rig_[j].ref == rig_[j].jointB) {
 								l.posPart = j;
 							}
-							if (rig_[j].ref == an && (rig_[j].write || l.rotPart < 0)) {
+							if (same && (rig_[j].write || l.rotPart < 0)) {
 								l.rotPart = j;
 							}
 						}

@@ -34,6 +34,9 @@ namespace delirium
 		b("Ragdoll.bMatchMass", matchMass_);
 		b("Ragdoll.bMatchContact", matchContact_);
 		b("Ragdoll.bTurnAboutJoint", aboutJoint_);
+		b("Creatures.bDraugr", draugr_);
+		b("Creatures.bSkeletons", skeletons_);
+		b("Creatures.bFalmer", falmer_);
 		b("Deaths.bNoKillMoves", noKillMoves_);
 		b("Deaths.bNoKillCams", noKillCams_);
 		f("Deaths.fDyingHealth", dyingHealth_);

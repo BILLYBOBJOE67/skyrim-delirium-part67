@@ -12,9 +12,10 @@ namespace delirium
 			}
 			return false;
 		}
-		// people only (the rig is a human's), not riding or sitting (the body would pull her off)
+		// people only (the rig is a human's) and the creatures [Creatures] turns on, not riding or sitting (the body
+		// would pull her off)
 		auto* race = a_target->GetRace();
-		if (!race || !race->HasKeywordString("ActorTypeNPC") || a_target->IsOnMount() ||
+		if (!race || !(race->HasKeywordString("ActorTypeNPC") || Creature(a_target)) || a_target->IsOnMount() ||
 			a_target->AsActorState()->GetSitSleepState() != RE::SIT_SLEEP_STATE::kNormal) {
 			if (!a_quiet) {
 				logger::info("{}: skipped {:08X} (not a person, riding or sitting)", a_what, a_target->GetFormID());
@@ -22,6 +23,28 @@ namespace delirium
 			return false;
 		}
 		return true;
+	}
+
+	// by the race's editor ID (mods rename them: TDC_DraugrRace), not its keywords: draugr and skeletons are both
+	// ActorTypeUndead. Skeletal horses, dragons and the rest have no person's bones. Falmer have a person's bones but
+	// stand hunched (their body is fitted to them: body/fit.cpp).
+	bool Engine::Creature(RE::Actor* a_actor) const
+	{
+		if (!(draugr_ || skeletons_ || falmer_)) {
+			return false;
+		}
+		auto*       race = a_actor ? a_actor->GetRace() : nullptr;
+		const char* id = race ? race->GetFormEditorID() : nullptr;
+		if (!id || !*id) {
+			return false;
+		}
+		std::string s = id;
+		std::ranges::transform(s, s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		if (s.find("horse") != std::string::npos || s.find("dragon") != std::string::npos) {
+			return false;
+		}
+		return (draugr_ && s.find("draugr") != std::string::npos) || (skeletons_ && s.find("skeleton") != std::string::npos) ||
+		       (falmer_ && s.find("falmer") != std::string::npos);
 	}
 
 	float Engine::StartChance(RE::Actor* a_target, const float (&a_chance)[2]) const

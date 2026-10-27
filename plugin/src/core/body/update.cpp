@@ -26,6 +26,13 @@ namespace delirium
 			}
 			return had;
 		}
+
+		// still the 3D she was taken on (Active::root): else every bone we hold is the old one's
+		template <class A>
+		bool Same3D(const A& a_active, RE::Actor* a_actor)
+		{
+			return a_actor->Get3D(false) == a_active.root.get();
+		}
 	}
 
 	namespace
@@ -67,8 +74,8 @@ namespace delirium
 				continue;
 			}
 			auto* top = a_actor->Get3D(false);
-			if (!top) {
-				return;
+			if (!top || !Same3D(a, a_actor)) {
+				return;  // a new 3D: our bones are the old one's (AfterAnimation lets her go)
 			}
 			struct TraceAfter
 			{
@@ -239,6 +246,10 @@ namespace delirium
 			}
 			if (!a_actor->Get3D(false) || a_actor->IsDisabled()) {
 				Release(i, "actor gone");
+				return;
+			}
+			if (!Same3D(a, a_actor)) {
+				Release(i, "her 3D was replaced (a script: outfit, disable / enable, a scene)");
 				return;
 			}
 			if (a.death && !a_actor->IsDead()) {
@@ -594,8 +605,18 @@ namespace delirium
 					// and we may have let her go already
 					if (auto act = h.get(); act && act->Get3D(false) && !act->IsDisabled() && Engine::Get().KeepsDown(act.get())) {
 						if (auto* proc = act->GetActorRuntimeData().currentProcess) {
+							// skeletons' race says "no knockdowns": Skyrim staggers them instead, never ragdolls them, and
+							// there is no get-up to hand back to (she snapped up). Off for our knock only, back at once.
+							auto*      race = act->GetRace();
+							const bool lift = race && race->data.flags.any(RE::RACE_DATA::Flag::kNoKnockdowns) && Engine::Get().Creature(act.get());
+							if (lift) {
+								race->data.flags.reset(RE::RACE_DATA::Flag::kNoKnockdowns);
+							}
 							proc->KnockExplosion(act.get(), KnockSource(act.get(), lean), 0.0f);
-							logger::info("{:08X}: into Skyrim's ragdoll state", act->GetFormID());
+							if (lift) {
+								race->data.flags.set(RE::RACE_DATA::Flag::kNoKnockdowns);
+							}
+							logger::info("{:08X}: into Skyrim's ragdoll state{}", act->GetFormID(), lift ? " (her race's no-knockdowns lifted for it)" : "");
 						}
 					}
 				});
@@ -710,7 +731,7 @@ namespace delirium
 		AfterPoseImpl(a_actor, a_postPhysics);
 		// the skeleton's top node as it gets drawn: SmoothRoot turns it from here on the next pose copy
 		for (auto& p : active_) {
-			if (auto* top = a_actor->Get3D(false); top && p->actor.get().get() == a_actor) {
+			if (auto* top = a_actor->Get3D(false); top && p->actor.get().get() == a_actor && Same3D(*p, a_actor)) {
 				if (!p->haveDrawnRoot || !p->knockQueued) {
 					// upright the top node is Skyrim's; ragdolled SmoothRoot keeps this up to date
 					p->drawnRootQ = FromMat(top->world.rotate);
@@ -771,7 +792,7 @@ namespace delirium
 	{
 		for (auto& p : active_) {
 			auto& a = *p;
-			if (a.actor.get().get() != a_actor || !a_actor->Get3D(false)) {
+			if (a.actor.get().get() != a_actor || !a_actor->Get3D(false) || !Same3D(a, a_actor)) {
 				continue;
 			}
 			++a.poses;

@@ -76,6 +76,11 @@ namespace delirium
 			B("Ragdoll", "bMatchContact", matchContact_, true, Advanced, P, "Delirium's grip and bounce", "And grip the ground and bounce as Delirium's parts do"),
 			B("Ragdoll", "bTurnAboutJoint", aboutJoint_, true, Advanced, kHidden, "Turn about the joint", "Dev: a muscle turns the limb about its joint"),
 
+			// [Creatures]
+			B("Creatures", "bDraugr", draugr_, true, Reactions, P, "Draugr", "Draugr react as people do (their body is fitted to their own bones). Off: Skyrim's own reactions"),
+			B("Creatures", "bSkeletons", skeletons_, false, Reactions, P, "Skeletons (very experimental)", "Very experimental. Skeletons react as people do (fitted to their own bones). Off: Skyrim's own reactions"),
+			B("Creatures", "bFalmer", falmer_, false, Reactions, P, "Falmer (very experimental)", "Very experimental. Falmer stand hunched, which Delirium can't balance yet: only blows that put them down (throws, knockdowns, killing blows) are Delirium's, the rest stays Skyrim's. Off: Skyrim's own reactions"),
+
 			// [Arrows]
 			B("Arrows", "bShotReaction", arrows_, true, Reactions, P, "Arrows", "An arrow that hits a living NPC: Delirium's shot reaction (stumble, clutch the wound, catch their balance or fall)"),
 			CappedBy(F("Arrows", "fPush", arrowPush_, 55.0, kAny, Strength, P, "Arrow push", "The arrow's push at the point it went in, N s (the test push is 80)"),
@@ -89,13 +94,13 @@ namespace delirium
 			F("Spells", "fShockTime", shockTime_, 2.0, Min(0.0), Timing, P, "Shocked", "Seconds the NPC is shocked after a lightning hit"),
 			F("Spells", "fChannelLinger", channelLinger_, 0.6, Min(0.1), Timing, P, "Channel linger",
 				"Channelled spells (Flames, Frostbite, Sparks): their reaction lasts this long after the last hit, s"),
-			F("Spells", "fStartChance", spellChance_[0], 0.3, Range(0.0, 1.0), Difficulty, P, "Spell: chance at full health",
+			F("Spells", "fStartChance", spellChance_[0], 0.5, Range(0.0, 1.0), Difficulty, P, "Spell: chance at full health",
 				"Chance a spell's missile brings the NPC into Delirium at full health (in between by their health). Once in, every hit plays"),
-			F("Spells", "fStartChanceHurt", spellChance_[1], 0.5, Range(0.0, 1.0), Difficulty, P, "Spell: chance near death",
+			F("Spells", "fStartChanceHurt", spellChance_[1], 0.8, Range(0.0, 1.0), Difficulty, P, "Spell: chance near death",
 				"The same near death. A killing blow and a spell that staggers always do"),
-			F("Spells", "fChannelChance", channelChance_[0], 0.1, Range(0.0, 1.0), Difficulty, P, "Channel: chance at full health",
+			F("Spells", "fChannelChance", channelChance_[0], 0.3, Range(0.0, 1.0), Difficulty, P, "Channel: chance at full health",
 				"Chance per second of a channelled spell, at full health. Once in, every tick keeps the NPC in"),
-			F("Spells", "fChannelChanceHurt", channelChance_[1], 0.2, Range(0.0, 1.0), Difficulty, P, "Channel: chance near death", "The same near death"),
+			F("Spells", "fChannelChanceHurt", channelChance_[1], 0.6, Range(0.0, 1.0), Difficulty, P, "Channel: chance near death", "The same near death"),
 
 			// [Stagger]
 			B("Stagger", "bReplace", staggers_, true, Reactions, P, "Staggers",

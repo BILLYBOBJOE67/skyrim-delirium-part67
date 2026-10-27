@@ -6,9 +6,26 @@ namespace delirium
 {
 	namespace
 	{
-		RE::NiAVObject* Node(RE::NiAVObject* a_root, const std::string& a_name)
+		// the bone by its exact name; a creature's (a_loose) also by its name without the tag (SameBone)
+		RE::NiAVObject* Node(RE::NiAVObject* a_root, const std::string& a_name, bool a_loose = false)
 		{
-			return a_root->GetObjectByName(RE::BSFixedString(a_name.c_str()));
+			if (auto* n = a_root->GetObjectByName(RE::BSFixedString(a_name.c_str())); n || !a_loose) {
+				return n;
+			}
+			std::function<RE::NiAVObject*(RE::NiAVObject*)> find = [&](RE::NiAVObject* o) -> RE::NiAVObject* {
+				if (SameBone(a_name, o->name.c_str(), true)) {
+					return o;
+				}
+				if (auto* node = o->AsNode()) {
+					for (auto& c : node->GetChildren()) {
+						if (auto* f = c ? find(c.get()) : nullptr) {
+							return f;
+						}
+					}
+				}
+				return nullptr;
+			};
+			return find(a_root);
 		}
 	}
 
@@ -22,10 +39,13 @@ namespace delirium
 		auto act = std::make_unique<Active>();
 		act->actor = a_actor->GetHandle();
 		act->origin = a_actor->GetPosition();
+		act->root.reset(root);
+		auto* race = a_actor->GetRace();
+		act->looseBones = race && Creature(a_actor);
 		for (std::size_t i = 0; i < 21; ++i) {
-			act->ref[i] = Node(root, rig_[i].ref);
-			act->ja[i] = Node(root, rig_[i].jointA);
-			act->jb[i] = Node(root, rig_[i].jointB);
+			act->ref[i] = Node(root, rig_[i].ref, act->looseBones);
+			act->ja[i] = Node(root, rig_[i].jointA, act->looseBones);
+			act->jb[i] = Node(root, rig_[i].jointB, act->looseBones);
 			if (!act->ref[i] || !act->ja[i] || !act->jb[i]) {
 				logger::warn("{:08X}: no bone for {} ({})", a_actor->GetFormID(), rig_[i].name, rig_[i].ref);
 				return false;
@@ -39,6 +59,11 @@ namespace delirium
 		act->comInPelvis = act->ref[0]->world.rotate.Transpose() * act->com->world.rotate;
 		// the NPC's size (race height, NPC weight scale): the body and the rig offsets are for a scale-1 skeleton
 		act->scale = std::clamp(act->ref[0]->world.scale, 0.3f, 3.0f);
+		// a creature's body on her own bones (her limbs aren't a person's lengths); a person's: the rig at her scale
+		NmBuild* fit = act->looseBones ? FitCreature(*act, a_actor) : nullptr;
+		if (!fit) {
+			PersonOffsets(*act);
+		}
 		std::array<V3, 21> pos;
 		std::array<Q, 21>  rot;
 		std::string        detail;
@@ -68,7 +93,11 @@ namespace delirium
 		const float heading = a_actor->data.angle.z;  // forward = (sin, cos)
 		const float yaw = std::atan2(std::cos(heading), std::sin(heading)) - rigYaw_;
 		const float zero[3]{};
-		if (std::abs(act->scale - 1.0f) > 1e-3f) {
+		if (fit) {
+			// her size is in it already (her own bones); the agent keeps its own copy
+			act->agent = dl.nm_agent_create(fit, zero, yaw, 0.3f);
+			dl.nm_build_destroy(fit);
+		} else if (std::abs(act->scale - 1.0f) > 1e-3f) {
 			// a copy of the body at the NPC's size (mass by volume); the agent keeps its own copy
 			std::array<float, 21> len;
 			len.fill(act->scale);
@@ -187,12 +216,12 @@ namespace delirium
 		float worst = 0;
 		for (std::size_t i = 0; i < 21; ++i) {
 			rot[i] = Mul(FromMat(a.ref[i]->world.rotate), Conj(rig_[i].offset));
-			const V3 anchor = Scl(rig_[i].anchor, a.scale);  // the rig is for a scale-1 skeleton
+			const V3 anchor = a.anchor[i];  // at her size (body/fit.cpp)
 			if (i == 0) {
 				pos[0] = Sub(rel(a.ja[0]), Rot(rot[0], anchor));
 			} else {
 				const auto p = static_cast<std::size_t>(kParent[i]);
-				pos[i] = Sub(Add(pos[p], Rot(rot[p], Scl(rig_[i].inParent, a.scale))), Rot(rot[i], anchor));
+				pos[i] = Sub(Add(pos[p], Rot(rot[p], a.inParent[i])), Rot(rot[i], anchor));
 			}
 			if (detail) {
 				const V3    j = Add(pos[i], Rot(rot[i], anchor));
@@ -476,12 +505,12 @@ namespace delirium
 			}
 		}
 		for (std::size_t i = 0; i < 21; ++i) {
-			const V3 anchor = Scl(rig_[i].anchor, a.scale);
+			const V3 anchor = a.anchor[i];
 			if (gotP[i]) {
 				pos[i] = Sub(joint[i], Rot(rot[i], anchor));
 			} else if (kParent[i] >= 0) {
 				const auto p = static_cast<std::size_t>(kParent[i]);
-				pos[i] = Sub(Add(pos[p], Rot(rot[p], Scl(rig_[i].inParent, a.scale))), Rot(rot[i], anchor));
+				pos[i] = Sub(Add(pos[p], Rot(rot[p], a.inParent[i])), Rot(rot[i], anchor));
 			}
 		}
 	}

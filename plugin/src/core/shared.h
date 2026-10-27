@@ -43,7 +43,7 @@ namespace delirium
 	X(nm_msg_set_bool) X(nm_msg_set_int) X(nm_msg_set_float) X(nm_msg_set_string) X(nm_msg_set_vec3) X(nm_msg_send) X(nm_agent_is_balancing) X(nm_agent_has_fallen) X(nm_agent_set_zero_pose) \
 	X(nm_build_scale) X(nm_build_destroy) X(nm_world_add_mesh) X(nm_world_raycast) X(nm_world_triangle_count) X(nm_agent_get_com) X(nm_agent_task_shot) X(nm_agent_task_balance) X(nm_agent_task_flinch) \
 	X(nm_agent_get_part_drives) X(nm_build_part_info) X(nm_agent_get_joint_accels) X(nm_agent_get_part_ext_torques) X(nm_agent_get_joint) \
-	X(nm_init_character_file) X(nm_build_from_character) X(nm_set_task_param)
+	X(nm_init_character_file) X(nm_build_from_character) X(nm_set_task_param) X(nm_build_remap) X(nm_build_part_frame) X(nm_build_part_joint) X(nm_build_turn_limit)
 	struct Api
 	{
 #define DL_DECL(f) decltype(&::f) f = nullptr;
@@ -166,6 +166,34 @@ namespace delirium
 		a_dir.z = 0.0f;
 		a_dir.Unitize();
 		return a_actor->GetPosition() - a_dir * 64.0f;
+	}
+
+	// A bone's name without its " [tag]": creatures' skeletons name the same bones differently (falmer have no tag,
+	// draugr and skeletons' left foot is "[LLft ]")
+	inline std::string_view BoneBase(std::string_view a_name)
+	{
+		const auto b = a_name.find(" [");
+		return b == std::string_view::npos ? a_name : a_name.substr(0, b);
+	}
+
+	// a falmer (by her race's editor ID): she stands hunched. Delirium's balance can't hold that stance yet, so only blows
+	// that put her down bring her in (React), and her joint limits are moved on to her stance (body/fit.cpp).
+	inline bool Hunched(RE::Actor* a_actor)
+	{
+		auto*       race = a_actor ? a_actor->GetRace() : nullptr;
+		const char* id = race ? race->GetFormEditorID() : nullptr;
+		if (!id) {
+			return false;
+		}
+		std::string s = id;
+		std::ranges::transform(s, s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		return s.find("falmer") != std::string::npos;
+	}
+
+	// the rig's bone is this one: the exact name, or (a creature, a_loose) the same name without its tag
+	inline bool SameBone(std::string_view a_rig, std::string_view a_bone, bool a_loose)
+	{
+		return a_rig == a_bone || (a_loose && BoneBase(a_rig) == BoneBase(a_bone));
 	}
 
 }

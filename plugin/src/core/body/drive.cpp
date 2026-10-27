@@ -78,7 +78,7 @@ namespace delirium
 		dl.nm_agent_get_part_transform(a.agent, l.rotPart, p, q);
 		a_rot = Mul({ q[0], q[1], q[2], q[3] }, rig_[l.rotPart].offset);
 		dl.nm_agent_get_part_transform(a.agent, l.posPart, p, q);
-		const V3 j = Add({ p[0], p[1], p[2] }, Rot({ q[0], q[1], q[2], q[3] }, Scl(rig_[l.posPart].anchor, a.scale)));
+		const V3 j = Add({ p[0], p[1], p[2] }, Rot({ q[0], q[1], q[2], q[3] }, a.anchor[static_cast<std::size_t>(l.posPart)]));
 		a_pos = Add(Scl({ a.origin.x, a.origin.y, a.origin.z }, kUnit), j);
 		return true;
 	}
@@ -146,9 +146,8 @@ namespace delirium
 		}
 		std::vector<float> dm(a.bodies.size(), 0.0f);
 		for (int p = 0; p < 21; ++p) {
-			float m = 0;
-			if (a.partBody[p] >= 0 && dl.nm_build_part_info(build_, p, &m, nullptr, nullptr, nullptr) >= 0) {
-				dm[static_cast<std::size_t>(a.partBody[p])] += m * a.scale * a.scale * a.scale;
+			if (a.partBody[p] >= 0) {
+				dm[static_cast<std::size_t>(a.partBody[p])] += a.partMass[static_cast<std::size_t>(p)];  // at her size (body/fit.cpp)
 			}
 		}
 		std::string s;
@@ -653,7 +652,7 @@ namespace delirium
 				}
 				return;
 			}
-			const V3           j = Add({ p[0], p[1], p[2] }, Rot({ q[0], q[1], q[2], q[3] }, Scl(rig_[0].anchor, a.scale)));
+			const V3           j = Add({ p[0], p[1], p[2] }, Rot({ q[0], q[1], q[2], q[3] }, a.anchor[0]));
 			const RE::NiPoint3 want = a.origin + RE::NiPoint3(j.x, j.y, j.z) / kUnit;
 			if (a.knockQueued) {
 				// ragdolled, Skyrim turns the skeleton root back and forth every frame: COM takes its rotation from our

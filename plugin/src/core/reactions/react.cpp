@@ -56,6 +56,19 @@ namespace delirium
 				}
 				logger::info("{:08X}: {} brings her in ({:.0f} % chance)", a_target->GetFormID(), a_blow.what, a_blow.startChance * 100.0f);
 			}
+			// a falmer can't keep her feet in Delirium (its balance is a person's): only a blow that puts her down brings
+			// her in (thrown, a knockdown, a killing blow); the rest is Skyrim's own stagger
+			if (Hunched(a_target)) {
+				const bool  held = held_.contains(a_target->GetFormID());
+				std::string key;
+				const Rule& rule = PickRule("stand", a_blow, held, key);
+				const bool  thrown = rule.Has("throw") && rule.Value("throw", 6.0f) > 0.0f && (a_blow.type != kBlowShout || a_blow.knocks);
+				const bool  down = held || a_blow.knocks || a_blow.type == kBlowKnock || thrown || a_blow.fly.x != 0.0f || a_blow.fly.y != 0.0f || a_blow.fly.z != 0.0f;
+				if (!down) {
+					logger::info("{:08X}: {} doesn't put her down ([{}]): a falmer, Skyrim's own hit", a_target->GetFormID(), a_blow.what, key);
+					return;
+				}
+			}
 			if (!Activate(a_target)) {
 				return;
 			}
