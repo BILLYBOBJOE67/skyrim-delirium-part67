@@ -5,7 +5,7 @@
 // swapped while the game runs ("reload" in the command file). Bump kCoreApi when this struct changes.
 namespace delirium
 {
-	inline constexpr std::uint32_t kCoreApi = 6;
+	inline constexpr std::uint32_t kCoreApi = 7;
 
 	struct CoreApi
 	{
@@ -38,6 +38,9 @@ namespace delirium
 		// a big bump (AE 37409: someone ran into her), before Skyrim's: true when Delirium plays it, then Skyrim's runs as a
 		// small bump (out of the way, a line) without its stumble. a_bumper may be null. Any thread the bump comes on
 		bool (*onBump)(RE::Actor* a_actor, RE::Actor* a_bumper);
+		// main thread, once a frame: right after the call where SMP (FSMP, HDT-SMP) writes its bones (AE 36564 + 0x9DC,
+		// chained after their hook), before the frame is drawn
+		void (*frameSync)();
 	};
 
 	using GetCoreApi = const CoreApi* (*)();

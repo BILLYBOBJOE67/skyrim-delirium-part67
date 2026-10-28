@@ -87,6 +87,7 @@ namespace delirium
 	void HookPresent();  // the render frame's end, for PublishShown
 	void UnhookPresent();
 	void PublishShown();  // body/show.cpp: every NPC's finished pose into what her skins read
+	void FrameSync();     // body/show.cpp: after the physics mods' frame sync, the same with what they wrote over her bones
 	inline std::atomic<bool> g_atPresent{ false };  // Present hooked: Show's pose waits for it (body/show.cpp)
 	// a_spell: 0 arrows only, 1 spells only, -1 any
 	bool RecentImpact(RE::TESObjectREFR* a_ref, float a_maxAge, RE::NiPoint3& a_at, RE::NiPoint3& a_vel, int a_spell = -1);

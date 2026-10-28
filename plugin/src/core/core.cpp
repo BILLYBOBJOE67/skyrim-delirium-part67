@@ -6,6 +6,7 @@ namespace delirium
 {
 	std::filesystem::path       g_pluginDir;  // Data/SKSE/Plugins (the core itself runs from a temporary copy)
 	const SKSE::TaskInterface* g_tasks{};     // the host's: main-thread tasks
+	void                       FrameSync();   // body/show.cpp
 }
 
 namespace
@@ -49,9 +50,10 @@ namespace
 	void Menu(int p) { Engine::Get().Menu(p); }
 	void SettingsFileChanged() { Engine::Get().SettingsFileChanged(); }
 	bool OnBump(RE::Actor* a, RE::Actor* b) { return Engine::Get().OnBump(a, b); }
+	void FrameSync() { delirium::FrameSync(); }
 
 	constexpr delirium::CoreApi kApi{ delirium::kCoreApi, Init, DataLoaded, Shutdown, Busy, AfterAnimation, AfterPose, DriveRagdoll, KeepsDown,
-		OnKey, Command, OnHitData, OnStagger, OnKill, Menu, SettingsFileChanged, OnBump };
+		OnKey, Command, OnHitData, OnStagger, OnKill, Menu, SettingsFileChanged, OnBump, FrameSync };
 }
 
 extern "C" __declspec(dllexport) const delirium::CoreApi* DeliriumCore_Get() { return &kApi; }

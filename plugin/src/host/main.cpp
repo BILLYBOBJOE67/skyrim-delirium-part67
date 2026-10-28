@@ -304,6 +304,35 @@ namespace
 		}
 	};
 
+	// The frame's sync point (call at AE id 36564 + 0x9DC, 0x9EE from 1.7.99; SE 35565 + 0x56D): SMP (FSMP, HDT-SMP)
+	// hooks this call and writes its bones' world transforms after it, before the frame is drawn. Ours goes on top at
+	// kDataLoaded, after theirs (kPostPostLoad), so it runs after their write: the core puts what they wrote into her
+	// drawn pose there (body/show.cpp). write_call chains through theirs.
+	struct FrameSync
+	{
+		static void thunk(void* a_this)
+		{
+			func(a_this);
+			if (core::Use c; c && c->busy()) {
+				c->frameSync();
+			}
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+
+		static void Install()
+		{
+			const auto base = REL::Module::get().base();
+			const auto at = REL::Module::IsAE() && REL::Module::get().version() >= SKSE::RUNTIME_SSE_1_7_99 ? 0x9EE : 0x9DC;
+			const auto site = REL::Relocation<std::uintptr_t>{ REL::RelocationID(35565, 36564) }.address() + REL::Relocate<std::size_t>(0x56D, at);
+			if (*reinterpret_cast<const std::uint8_t*>(site) != 0xE8) {
+				logger::error("frame sync hook: +{:X} is not a call; not hooked (SMP cloth stays still while Delirium poses)", site - base);
+				return;
+			}
+			func = SKSE::GetTrampoline().write_call<5>(site, thunk);
+			logger::info("frame sync hook at +{:X} (was calling +{:X})", site - base, func.address() - base);
+		}
+	};
+
 	// Skyrim's knock-state update (AE 39896) asks Actor::IsRagdollMovingSlowEnoughToGetUp (AE 37689) whether a
 	// knocked-down actor may get up. While Delirium still moves the body the answer is no; once it has settled
 	// Skyrim's own check decides and its vanilla get-up starts from our pose.
@@ -531,6 +560,7 @@ namespace
 			break;
 		case SKSE::MessagingInterface::kDataLoaded:
 			{
+				FrameSync::Install();
 				core::dataLoaded = true;
 				if (core::Use c; c) {
 					c->dataLoaded();

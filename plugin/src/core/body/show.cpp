@@ -15,6 +15,13 @@
 // the finished pose in Bone::next and PublishShown, at IDXGISwapChain::Present (hooks.cpp), copies it into what the
 // skins read: one frame, one pose. Skyrim starts its next render frame right after Present, so the pose is drawn in
 // the same frame as before when Show came after the renderer, which was the other half of the time.
+//
+// Physics mods that write her bones' world transforms (SMP: FSMP, HDT-SMP; cloth, hair, SMP breasts) do it after Show:
+// FSMP at its frame sync, about 1.4 ms after Show and before her meshes are drawn; Skyrim's own update writes them
+// back from local before Present. The copy never had them: her SMP parts hung fixed or snapped. So the host calls
+// FrameSync right after that sync point (the call FSMP hooks, chained after it): the bones written over since Show
+// (world no longer parent * local) go into her next pose, each where it is now from the nearest copied bone above it,
+// and the pose is published there, with Present only a fallback for frames with no sync.
 #include "shared.h"
 
 namespace delirium
@@ -74,26 +81,76 @@ namespace delirium
 			}
 			++a_p.published;
 		}
+
+		// written as a world transform by someone since its parent's update (SMP writes world only): no longer parent * local
+		bool WrittenOver(const RE::NiAVObject* a_node, const RE::NiAVObject* a_parent)
+		{
+			const auto e = a_parent->world * a_node->local;
+			const auto& w = a_node->world;
+			if ((e.translate - w.translate).Length() > 0.01f) {
+				return true;
+			}
+			for (int i = 0; i < 3; ++i) {
+				for (int j = 0; j < 3; ++j) {
+					if (std::abs(e.rotate.entry[i][j] - w.rotate.entry[i][j]) > 1e-3f) {
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		// what a physics mod wrote over her bones since Show, into her next pose: each such bone where it is now from the
+		// bone above it, put on that bone as we pose it. Her pose moved since Show only as a whole (her root), so the rest
+		// stays as Show copied it.
+		void PhysicsIn(ShownPose& a_p)
+		{
+			for (auto& f : a_p.follow) {
+				if (f.node->parent == f.parent.get() && WrittenOver(f.node.get(), f.parent.get())) {
+					f.bone->next = f.anchorBone->next * (f.anchor->world.Invert() * f.node->world);
+				}
+			}
+		}
+
+		void PublishAll()
+		{
+			for (auto* p : g_shown) {
+				// a render thread still on one of her skins: her pose waits for the next frame (never twice in a row: a
+				// torn frame rather than a stuck pose)
+				const bool locked = LockSkins(*p);
+				if (!locked && !p->heldLast) {
+					p->heldLast = true;
+					++p->held;
+					continue;
+				}
+				Publish(*p);
+				p->heldLast = false;
+				if (locked) {
+					UnlockSkins(*p);
+				}
+			}
+		}
+
+		std::atomic<bool> g_synced{ false };  // FrameSync ran since the last Present: it published this frame's poses
 	}
 
 	void PublishShown()
 	{
+		if (g_synced.exchange(false)) {
+			return;
+		}
+		std::scoped_lock l(g_showLock);
+		PublishAll();
+	}
+
+	void FrameSync()
+	{
 		std::scoped_lock l(g_showLock);
 		for (auto* p : g_shown) {
-			// a render thread still on one of her skins: her pose waits for the next Present (never twice in a row: a
-			// torn frame rather than a stuck pose)
-			const bool locked = LockSkins(*p);
-			if (!locked && !p->heldLast) {
-				p->heldLast = true;
-				++p->held;
-				continue;
-			}
-			Publish(*p);
-			p->heldLast = false;
-			if (locked) {
-				UnlockSkins(*p);
-			}
+			PhysicsIn(*p);
 		}
+		PublishAll();
+		g_synced = true;
 	}
 
 	void Engine::Show(Active& a, RE::NiAVObject* a_root)
@@ -104,6 +161,34 @@ namespace delirium
 		for (auto& [node, b] : p.bones) {
 			if (a.drawnWorld.contains(node)) {
 				b.next = node->world;
+			}
+		}
+		// the bones a physics mod may write over before she is drawn, each with the nearest copied bone above it, parents first
+		p.follow.clear();
+		{
+			std::vector<std::pair<int, ShownPose::Follow>> f;
+			for (auto& [node, b] : p.bones) {
+				if (!node->parent || !a.drawnWorld.contains(node)) {
+					continue;
+				}
+				int             depth = 0;
+				RE::NiAVObject* anchor{};
+				ShownPose::Bone* anchorBone{};
+				for (auto* up = node->parent; up; up = up->parent, ++depth) {
+					if (!anchor) {
+						if (const auto it = p.bones.find(up); it != p.bones.end() && a.drawnWorld.contains(up)) {
+							anchor = up;
+							anchorBone = &it->second;
+						}
+					}
+				}
+				if (anchor) {
+					f.push_back({ depth, { RE::NiPointer(node), RE::NiPointer(node->parent), RE::NiPointer(anchor), &b, anchorBone } });
+				}
+			}
+			std::ranges::sort(f, {}, &std::pair<int, ShownPose::Follow>::first);
+			for (auto& [d, e] : f) {
+				p.follow.push_back(std::move(e));
 			}
 		}
 		// meshes that still read the live bones (new ones: gear put on, blood decals) move over to the copy
@@ -169,6 +254,7 @@ namespace delirium
 		// trace: poses drawn, and held back a frame (a skin mid-build at Present)
 		logger::info("shown: {} poses drawn, {} held a frame", p.published, p.held);
 		p.skins.clear();
+		p.follow.clear();
 		Retire(std::move(p.bones));
 		p.bones.clear();
 		p.published = p.held = 0;

@@ -45,7 +45,16 @@ namespace delirium
 			RE::NiTransform drawn;  // what her skins read
 			RE::NiTransform next;   // the finished pose, drawn from the next render frame on (PublishShown)
 		};
+		// a bone of hers whose world a physics mod may write after Show (SMP cloth, hair, breasts), and the nearest
+		// bone above it in the copy, which it is drawn from (PhysicsIn)
+		struct Follow
+		{
+			RE::NiPointer<RE::NiAVObject> node, parent, anchor;
+			Bone*                         bone;
+			Bone*                         anchorBone;
+		};
 		std::unordered_map<RE::NiAVObject*, Bone>      bones;
+		std::vector<Follow>                            follow;  // this frame's, parents first
 		std::vector<RE::NiPointer<RE::NiSkinInstance>> skins;
 		int                                            published{}, held{};  // frames, for the release log
 		bool                                           heldLast{};          // the last Present held her pose back
