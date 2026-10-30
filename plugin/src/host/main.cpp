@@ -238,7 +238,9 @@ namespace
 			if (!a_this) {
 				return;
 			}
-			calls.fetch_add(1, std::memory_order_relaxed);
+			if (calls.fetch_add(1, std::memory_order_relaxed) == 0) {
+				logger::info("player animation hook: first call (delta {:.4f})", a_delta);
+			}
 			if (core::Use c; c) {
 				c->afterAnimation(a_this, a_delta);
 			}

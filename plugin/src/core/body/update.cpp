@@ -225,6 +225,15 @@ namespace delirium
 
 	void Engine::AfterAnimation(RE::Actor* a_actor, float a_delta)
 	{
+		if (a_actor->IsPlayerRef()) {
+			static bool wasRagdoll = false;
+			const bool  ragdoll = a_actor->IsInRagdollState();
+			if (ragdoll != wasRagdoll) {
+				logger::info("player: {} Skyrim's ragdoll (knock state {}, bPlayer {}, take over {}, ready {})", ragdoll ? "into" : "out of",
+					static_cast<int>(a_actor->AsActorState()->GetKnockState()), player_, takeOver_, ready_);
+				wasRagdoll = ragdoll;
+			}
+		}
 		if (takeOver_ && ready_ && !SkipPlayer(a_actor)) {
 			if (a_actor->IsInRagdollState()) {
 				TryTakeOver(a_actor, a_actor->IsDead());

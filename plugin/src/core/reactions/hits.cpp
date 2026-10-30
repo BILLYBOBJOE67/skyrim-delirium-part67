@@ -195,7 +195,8 @@ namespace delirium
 			b.exact = h.exact;
 			b.dir = { h.strikeDir.x, h.strikeDir.y, h.strikeDir.z };
 			b.push = h.strike;
-			b.canStart = false;
+			// an NPC only joins Delirium on a stagger; the player on any real blow (one that would make an NPC step)
+			b.canStart = a_target->IsPlayerRef() && b.push >= flinchBelow_;
 			b.melee = true;
 			b.type = kBlowMelee;
 			b.oomph = meleePush_ > 0.0f ? std::clamp((b.push / meleePush_ - meleeOomphFrom_) / (meleeOomphTo_ - meleeOomphFrom_), 0.0f, 1.0f) : 0.0f;
