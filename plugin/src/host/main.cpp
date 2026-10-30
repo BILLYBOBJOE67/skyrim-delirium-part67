@@ -227,6 +227,33 @@ namespace
 		}
 	};
 
+	// The player's animation isn't one of those jobs: PlayerCharacter::UpdateAnimation (its own vtable, slot 0x7D) runs
+	// it on the main thread. Hooked the same way so Delirium steps her body after Skyrim poses it ([Player] bPlayer; the
+	// core skips her when it is off). Precision hooks the same slot: write_vfunc chains through whoever got there first.
+	struct UpdatePlayerAnimation
+	{
+		static void thunk(RE::PlayerCharacter* a_this, float a_delta)
+		{
+			func(a_this, a_delta);
+			if (!a_this) {
+				return;
+			}
+			calls.fetch_add(1, std::memory_order_relaxed);
+			if (core::Use c; c) {
+				c->afterAnimation(a_this, a_delta);
+			}
+		}
+		static inline REL::Relocation<decltype(thunk)> func;
+		static inline std::atomic<std::uint64_t>      calls{ 0 };
+
+		static void Install()
+		{
+			REL::Relocation<std::uintptr_t> vt{ RE::VTABLE_PlayerCharacter[0] };
+			func = vt.write_vfunc(0x7D, thunk);
+			logger::info("player animation hook on PlayerCharacter's vtable (slot 7D)");
+		}
+	};
+
 	// Skyrim's per-bone copy of the animation graph's pose into the skeleton nodes (AE id 63856). Two callers:
 	// the normal graph update (id 63568) and the post-physics one used while ragdolled (id 63563). Nothing else
 	// writes the bone locals, so Delirium's bones go on right after every copy and the plain pose is never drawn.
@@ -506,8 +533,8 @@ namespace
 				}
 				if (auto* b = e->AsButtonEvent(); b && b->IsDown()) {
 					if (const auto key = b->GetIDCode(); key == 0x41 || key == 0x42) {
-						logger::info("animation hook calls so far: {}{}", UpdateAnimationInternal::calls.load(),
-							UpdateAnimationInternal::installed ? "" : " (hook not installed)");
+						logger::info("animation hook calls so far: {}{}, player's: {}", UpdateAnimationInternal::calls.load(),
+							UpdateAnimationInternal::installed ? "" : " (hook not installed)", UpdatePlayerAnimation::calls.load());
 					}
 					if (core::Use c; c) {
 						c->onKey(b->GetIDCode());
@@ -600,6 +627,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 	// animation hook's extra call sites too) and the entry hooks' copied openings
 	SKSE::AllocTrampoline(512);
 	UpdateAnimationInternal::Install();  // does nothing per frame until a body is active
+	UpdatePlayerAnimation::Install();
 	PoseToNodes::Install();
 	DriveToPose::Install();
 	GetUpCheck::Install();

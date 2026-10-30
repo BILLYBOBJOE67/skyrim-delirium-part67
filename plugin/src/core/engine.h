@@ -125,6 +125,7 @@ namespace delirium
 		void OnHit(RE::Actor* a_target, const RE::NiPoint3& a_at, const RE::NiPoint3& a_vel, bool a_exact, int a_kind, bool a_channel = false, bool a_sure = false);
 		// any weapon hit on an actor (Actor::ProcessHitData, before Skyrim's): kept as her last hit
 		void OnHitData(RE::Actor* a_target, const RE::HitData& a_hit);
+		bool SkipPlayer(RE::Actor* a_actor) const;  // the player, and [Player] bPlayer is off
 		// Skyrim staggered her (a_started: it really did now): Delirium's push takes the stagger's place on the body
 		void OnStagger(RE::Actor* a_target, float a_magnitude, RE::Actor* a_source, bool a_started);
 		void Stagger(RE::Actor* a_target, float a_magnitude, RE::Actor* a_source);  // main thread, a frame later
@@ -473,6 +474,7 @@ namespace delirium
 		std::unordered_set<RE::FormID>       heldDied_;  // killed after a hold: her death ragdoll gets no new shot or push
 		std::atomic<RE::Actor*>              letKill_{ nullptr };  // the kill we make ourselves goes through
 		bool          aboutJoint_{ true };   // [Ragdoll] bTurnAboutJoint: a muscle turns the limb about its joint (the spin and the swing that goes with it)
+		bool          player_{ true };  // [Player] bPlayer: the player gets Delirium's reactions and ragdolls too
 		bool          draugr_{ true }, skeletons_{ false }, falmer_{ false };  // [Creatures] bDraugr / bSkeletons / bFalmer: these creatures too (a person's bones)
 		// Skyrim's joints' own friction, by joint data (it may be shared between ragdolls): the original and how many hold it
 		std::unordered_map<RE::hkpConstraintData*, std::pair<float, int>> eased_;

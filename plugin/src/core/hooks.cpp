@@ -11,12 +11,32 @@ namespace delirium
 	namespace
 	{
 		using Update3DFn = void (*)(RE::Actor*);
-		std::uintptr_t* g_vtSlot{};
-		Update3DFn      g_origUpdate3D{};
+		// one patch per actor class: NPCs (Character) and the player (PlayerCharacter) have their own vtables
+		struct Update3DPatch
+		{
+			std::uintptr_t* vt{};
+			std::uintptr_t* slot{};
+			Update3DFn      orig{};
+		};
+		std::array<Update3DPatch, 4> g_update3D{};
+
+		Update3DFn OrigUpdate3D(RE::Actor* a_actor)
+		{
+			auto* vt = *reinterpret_cast<std::uintptr_t**>(a_actor);
+			for (const auto& p : g_update3D) {
+				if (p.vt == vt) {
+					return p.orig;
+				}
+			}
+			// an actor class we never patched can't reach the hook; the first patch is the best guess
+			return g_update3D[0].orig;
+		}
 
 		void Update3DHook(RE::Actor* a_actor)
 		{
-			g_origUpdate3D(a_actor);
+			if (auto orig = OrigUpdate3D(a_actor)) {
+				orig(a_actor);
+			}
 			if (Engine::Busy()) {
 				Engine::Get().AfterRootMove(a_actor);
 			}
@@ -32,21 +52,32 @@ namespace delirium
 
 	void HookUpdate3D(RE::Actor* a_actor)
 	{
-		if (g_vtSlot) {
-			return;
-		}
 		auto* vt = *reinterpret_cast<std::uintptr_t**>(a_actor);
-		g_vtSlot = vt + 0x11F;
-		g_origUpdate3D = reinterpret_cast<Update3DFn>(*g_vtSlot);
-		PatchSlot(g_vtSlot, reinterpret_cast<std::uintptr_t>(&Update3DHook));
-		logger::info("hooked UpdateActor3DPosition (vtable {:X}, was {:X})", reinterpret_cast<std::uintptr_t>(vt),
-			reinterpret_cast<std::uintptr_t>(g_origUpdate3D));
+		for (auto& p : g_update3D) {
+			if (p.vt == vt) {
+				return;  // this class is hooked already
+			}
+		}
+		for (auto& p : g_update3D) {
+			if (!p.vt) {
+				p.vt = vt;
+				p.slot = vt + 0x11F;
+				p.orig = reinterpret_cast<Update3DFn>(*p.slot);
+				PatchSlot(p.slot, reinterpret_cast<std::uintptr_t>(&Update3DHook));
+				logger::info("hooked UpdateActor3DPosition (vtable {:X}, was {:X}){}", reinterpret_cast<std::uintptr_t>(vt),
+					reinterpret_cast<std::uintptr_t>(p.orig), a_actor->IsPlayerRef() ? " for the player" : "");
+				return;
+			}
+		}
+		logger::error("UpdateActor3DPosition: no room to hook another actor class (vtable {:X})", reinterpret_cast<std::uintptr_t>(vt));
 	}
 	void UnhookUpdate3D()
 	{
-		if (g_vtSlot) {
-			PatchSlot(g_vtSlot, reinterpret_cast<std::uintptr_t>(g_origUpdate3D));
-			g_vtSlot = nullptr;
+		for (auto& p : g_update3D) {
+			if (p.slot) {
+				PatchSlot(p.slot, reinterpret_cast<std::uintptr_t>(p.orig));
+			}
+			p = {};
 		}
 	}
 
@@ -282,7 +313,7 @@ namespace delirium
 					return RE::BSEventNotifyControl::kContinue;
 				}
 				auto* target = a_event->target->As<RE::Actor>();
-				if (!target || target->IsPlayerRef()) {
+				if (!target || Engine::Get().SkipPlayer(target)) {
 					return RE::BSEventNotifyControl::kContinue;
 				}
 				auto* src = RE::TESForm::LookupByID(a_event->source);

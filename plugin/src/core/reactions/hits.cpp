@@ -6,7 +6,7 @@ namespace delirium
 {
 	bool Engine::Eligible(RE::Actor* a_target, const char* a_what, bool a_quiet) const
 	{
-		if (!ready_ || !a_target || a_target->IsPlayerRef() || a_target->IsDead() || a_target->IsDisabled() || !a_target->Get3D(false)) {
+		if (!ready_ || !a_target || SkipPlayer(a_target) || a_target->IsDead() || a_target->IsDisabled() || !a_target->Get3D(false)) {
 			if (!a_quiet) {
 				logger::info("{}: skipped (off, dead, disabled or no 3D)", a_what);
 			}
@@ -23,6 +23,12 @@ namespace delirium
 			return false;
 		}
 		return true;
+	}
+
+	// the player only when [Player] bPlayer is on (her own reactions, staggers and Skyrim's ragdolls)
+	bool Engine::SkipPlayer(RE::Actor* a_actor) const
+	{
+		return a_actor && a_actor->IsPlayerRef() && !player_;
 	}
 
 	// by the race's editor ID (mods rename them: TDC_DraugrRace), not its keywords: draugr and skeletons are both
@@ -154,7 +160,7 @@ namespace delirium
 
 	void Engine::OnHitData(RE::Actor* a_target, const RE::HitData& a_hit)
 	{
-		if (!ready_ || a_target->IsPlayerRef()) {
+		if (!ready_ || SkipPlayer(a_target)) {
 			return;
 		}
 		LastHit h;
@@ -333,7 +339,7 @@ namespace delirium
 
 	void Engine::OnStagger(RE::Actor* a_target, float a_magnitude, RE::Actor* a_source, bool a_started)
 	{
-		if (!ready_ || !staggers_ || !a_started || a_target->IsPlayerRef()) {
+		if (!ready_ || !staggers_ || !a_started || SkipPlayer(a_target)) {
 			return;
 		}
 		// what Skyrim staggered with: after its perks and its cap of 1

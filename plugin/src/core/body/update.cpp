@@ -225,7 +225,7 @@ namespace delirium
 
 	void Engine::AfterAnimation(RE::Actor* a_actor, float a_delta)
 	{
-		if (takeOver_ && ready_ && !a_actor->IsPlayerRef()) {
+		if (takeOver_ && ready_ && !SkipPlayer(a_actor)) {
 			if (a_actor->IsInRagdollState()) {
 				TryTakeOver(a_actor, a_actor->IsDead());
 			} else if (g_skip.load(std::memory_order_relaxed) != 0) {

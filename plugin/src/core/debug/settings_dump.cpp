@@ -37,6 +37,7 @@ namespace delirium
 		b("Creatures.bDraugr", draugr_);
 		b("Creatures.bSkeletons", skeletons_);
 		b("Creatures.bFalmer", falmer_);
+		b("Player.bPlayer", player_);
 		b("Deaths.bNoKillMoves", noKillMoves_);
 		b("Deaths.bNoKillCams", noKillCams_);
 		f("Deaths.fDyingHealth", dyingHealth_);

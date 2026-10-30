@@ -81,6 +81,10 @@ namespace delirium
 			B("Creatures", "bSkeletons", skeletons_, false, Reactions, P, "Skeletons (very experimental)", "Very experimental. Skeletons react as people do (fitted to their own bones). Off: Skyrim's own reactions"),
 			B("Creatures", "bFalmer", falmer_, false, Reactions, P, "Falmer (very experimental)", "Very experimental. Falmer stand hunched, which Delirium can't balance yet: only blows that put them down (throws, knockdowns, killing blows) are Delirium's, the rest stays Skyrim's. Off: Skyrim's own reactions"),
 
+			// [Player]
+			B("Player", "bPlayer", player_, true, Reactions, P, "The player too",
+				"You get Delirium's hit reactions, staggers and ragdolls too (arrows, spells, blows, bashes, Fus Ro Dah). Off: only NPCs"),
+
 			// [Arrows]
 			B("Arrows", "bShotReaction", arrows_, true, Reactions, P, "Arrows", "An arrow that hits a living NPC: Delirium's shot reaction (stumble, clutch the wound, catch their balance or fall)"),
 			CappedBy(F("Arrows", "fPush", arrowPush_, 55.0, kAny, Strength, P, "Arrow push", "The arrow's push at the point it went in, N s (the test push is 80)"),

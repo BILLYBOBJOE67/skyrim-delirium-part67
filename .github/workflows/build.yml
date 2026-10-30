@@ -1,0 +1,46 @@
+name: Build (player ragdolls)
+
+on:
+  push:
+    branches: [player-ragdoll]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: delirium
+
+      - name: Get CommonLibSSE-NG and the Delirium SDK header
+        shell: bash
+        run: |
+          git clone --depth 1 --branch ng https://github.com/alandtse/CommonLibVR.git extern/CommonLibSSE-NG
+          git clone --depth 1 https://github.com/YoucefNabil/delirium-physics.git extern/delirium-physics
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure
+        shell: cmd
+        run: >
+          cmake -S delirium/plugin -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_INSTALLATION_ROOT%\scripts\buildsystems\vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows-static-md
+          "-DCOMMONLIB_DIR=%GITHUB_WORKSPACE%\extern\CommonLibSSE-NG"
+          "-DDELIRIUM_DIR=%GITHUB_WORKSPACE%\extern\delirium-physics"
+
+      - name: Build
+        shell: cmd
+        run: cmake --build build --target SkyrimDelirium SkyrimDeliriumCore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkyrimDelirium-player
+          path: |
+            build/SkyrimDelirium.dll
+            build/SkyrimDeliriumCore.dll
+            build/SkyrimDeliriumCore.pdb
+            delirium/plugin/data/SkyrimDelirium.ini
