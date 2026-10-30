@@ -84,6 +84,8 @@ namespace delirium
 			// [Player]
 			B("Player", "bPlayer", player_, true, Reactions, P, "The player too",
 				"You get Delirium's hit reactions, staggers and ragdolls too (arrows, spells, blows, bashes, Fus Ro Dah). Off: only NPCs"),
+			B("Player", "bFreeRagdollCamera", noRagdollCam_, true, Reactions, P, "Free camera while down",
+				"Knocked down, Skyrim's locked knockdown camera is swapped for the normal third person camera that follows your body and that you can turn"),
 			I("Player", "iThirdPerson", playerCamera_, 1, Range(0.0, 2.0), Reactions, P, "Third person while hit",
 				"In first person the camera goes to third person so you see your body: 0 never, 1 while you're knocked down or thrown, 2 for every reaction. First person again once you're up"),
 

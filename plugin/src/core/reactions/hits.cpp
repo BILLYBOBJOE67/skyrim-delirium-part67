@@ -50,6 +50,42 @@ namespace delirium
 		}
 	}
 
+	// Knocked down, Skyrim puts the camera in its bleedout state: it circles the body on its own and won't take the
+	// mouse. While she is knocked (not a real bleedout on her knees) it goes back to the normal third person camera,
+	// which follows the body Delirium throws around; from first person she comes back to it once up.
+	void Engine::PlayerFreeCamera(RE::Actor* a_player)
+	{
+		auto* cam = RE::PlayerCamera::GetSingleton();
+		if (!cam) {
+			return;
+		}
+		const bool knocked = a_player->IsInRagdollState() || a_player->AsActorState()->GetKnockState() != RE::KNOCK_STATE_ENUM::kNormal;
+		if (!knocked) {
+			if (!cam->IsInBleedoutMode()) {
+				playerWasFirst_ = cam->IsInFirstPerson();
+			}
+			return;
+		}
+		if (!cam->IsInBleedoutMode() || a_player->IsDead()) {
+			return;
+		}
+		auto* third = cam->GetRuntimeData().cameraStates[RE::CameraStates::kThirdPerson].get();
+		if (!third) {
+			return;
+		}
+		cam->SetState(third);
+		if (playerWasFirst_ && !playerCamForced_) {
+			playerCamForced_ = true;  // first person again once she is up (PlayerCameraBack)
+			playerCamRestore_ = true;
+		}
+		static int swaps = 0;
+		if (++swaps <= 20) {
+			logger::info("player: knocked down, Skyrim's locked camera swapped for the normal third person one (knock state {}, {}){}",
+				static_cast<int>(a_player->AsActorState()->GetKnockState()), playerWasFirst_ ? "from first person" : "from third person",
+				swaps == 20 ? "; not logged again" : "");
+		}
+	}
+
 	void Engine::PlayerCameraBack(RE::Actor* a_player)
 	{
 		// not while Delirium has her again, she lies in Skyrim's ragdoll, gets up or is dead

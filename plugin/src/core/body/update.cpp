@@ -233,6 +233,9 @@ namespace delirium
 					static_cast<int>(a_actor->AsActorState()->GetKnockState()), player_, takeOver_, ready_);
 				wasRagdoll = ragdoll;
 			}
+			if (player_ && noRagdollCam_) {
+				PlayerFreeCamera(a_actor);
+			}
 			if (playerCamRestore_) {
 				PlayerCameraBack(a_actor);
 			}
