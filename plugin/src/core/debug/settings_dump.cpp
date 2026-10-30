@@ -38,6 +38,7 @@ namespace delirium
 		b("Creatures.bSkeletons", skeletons_);
 		b("Creatures.bFalmer", falmer_);
 		b("Player.bPlayer", player_);
+		i("Player.iThirdPerson", static_cast<long long>(playerCamera_));
 		b("Deaths.bNoKillMoves", noKillMoves_);
 		b("Deaths.bNoKillCams", noKillCams_);
 		f("Deaths.fDyingHealth", dyingHealth_);

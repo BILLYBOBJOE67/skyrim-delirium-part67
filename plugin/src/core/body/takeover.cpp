@@ -277,6 +277,9 @@ namespace delirium
 	{
 		auto& a = active_[a_i];
 		logger::info("released ({}) after {:.1} s", a_why, a->age);
+		if (auto who = a->actor.get(); who && who->IsPlayerRef() && playerCamForced_) {
+			playerCamRestore_ = true;  // back to first person once she is up (AfterAnimation)
+		}
 		Unshow(*a);  // her meshes read her bones again (body/show.cpp)
 		RestoreJoints(*a);
 		for (std::size_t k = 0; k < a->weighed.size(); ++k) {

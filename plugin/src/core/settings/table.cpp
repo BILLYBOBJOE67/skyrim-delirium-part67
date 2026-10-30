@@ -84,6 +84,8 @@ namespace delirium
 			// [Player]
 			B("Player", "bPlayer", player_, true, Reactions, P, "The player too",
 				"You get Delirium's hit reactions, staggers and ragdolls too (arrows, spells, blows, bashes, Fus Ro Dah). Off: only NPCs"),
+			I("Player", "iThirdPerson", playerCamera_, 1, Range(0.0, 2.0), Reactions, P, "Third person while hit",
+				"In first person the camera goes to third person so you see your body: 0 never, 1 while you're knocked down or thrown, 2 for every reaction. First person again once you're up"),
 
 			// [Arrows]
 			B("Arrows", "bShotReaction", arrows_, true, Reactions, P, "Arrows", "An arrow that hits a living NPC: Delirium's shot reaction (stumble, clutch the wound, catch their balance or fall)"),

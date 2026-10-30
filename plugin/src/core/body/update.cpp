@@ -233,6 +233,9 @@ namespace delirium
 					static_cast<int>(a_actor->AsActorState()->GetKnockState()), player_, takeOver_, ready_);
 				wasRagdoll = ragdoll;
 			}
+			if (playerCamRestore_) {
+				PlayerCameraBack(a_actor);
+			}
 		}
 		if (takeOver_ && ready_ && !SkipPlayer(a_actor)) {
 			if (a_actor->IsInRagdollState()) {
@@ -264,6 +267,9 @@ namespace delirium
 			if (a.death && !a_actor->IsDead()) {
 				Release(i, "alive again");
 				return;
+			}
+			if (a_actor->IsPlayerRef()) {
+				PlayerCamera(a);
 			}
 			if (a_actor->IsDead() && !a.death) {
 				a.death = true;

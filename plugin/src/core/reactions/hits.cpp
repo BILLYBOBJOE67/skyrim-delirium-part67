@@ -31,6 +31,51 @@ namespace delirium
 		return a_actor && a_actor->IsPlayerRef() && !player_;
 	}
 
+	// First person is the arms only: what Delirium does to her body happens on the third person one. While Delirium
+	// has her the camera goes to third person (always, or only once she is down or thrown), and back once she is up.
+	void Engine::PlayerCamera(const Active& a)
+	{
+		if (playerCamera_ <= 0 || playerCamForced_) {
+			return;
+		}
+		if (playerCamera_ == 1 && !a.knockQueued && !a.death) {
+			return;  // on her feet: first person stays
+		}
+		auto* cam = RE::PlayerCamera::GetSingleton();
+		if (cam && cam->IsInFirstPerson()) {
+			cam->ForceThirdPerson();
+			playerCamForced_ = true;
+			playerCamRestore_ = false;
+			logger::info("player: third person while Delirium has her ({})", a.knockQueued ? "down" : "on her feet");
+		}
+	}
+
+	void Engine::PlayerCameraBack(RE::Actor* a_player)
+	{
+		// not while Delirium has her again, she lies in Skyrim's ragdoll, gets up or is dead
+		if (a_player->IsDead()) {
+			playerCamRestore_ = playerCamForced_ = false;
+			return;
+		}
+		if (a_player->IsInRagdollState() || a_player->AsActorState()->GetKnockState() != RE::KNOCK_STATE_ENUM::kNormal) {
+			return;
+		}
+		{
+			std::scoped_lock l(lock_);
+			for (auto& p : active_) {
+				if (p->actor.get().get() == a_player) {
+					return;
+				}
+			}
+		}
+		playerCamRestore_ = playerCamForced_ = false;
+		auto* cam = RE::PlayerCamera::GetSingleton();
+		if (cam && cam->IsInThirdPerson()) {  // left alone if she changed the view herself (free camera, a menu)
+			cam->ForceFirstPerson();
+			logger::info("player: up again, first person");
+		}
+	}
+
 	// by the race's editor ID (mods rename them: TDC_DraugrRace), not its keywords: draugr and skeletons are both
 	// ActorTypeUndead. Skeletal horses, dragons and the rest have no person's bones. Falmer have a person's bones but
 	// stand hunched (their body is fitted to them: body/fit.cpp).

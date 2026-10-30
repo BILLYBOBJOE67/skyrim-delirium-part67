@@ -392,6 +392,8 @@ namespace delirium
 		void Fly(Active& a, RE::Actor* a_actor, const Blow& b);  // thrown: arms windmill / legs pedal or tucked in a roll, then a catch
 		bool Eligible(RE::Actor* a_target, const char* a_what, bool a_quiet) const;  // a person Delirium can take
 		bool Creature(RE::Actor* a_actor) const;  // a draugr, skeleton or falmer whose kind [Creatures] turns on
+		void PlayerCamera(const Active& a);      // main thread: third person while Delirium has the player ([Player] iThirdPerson)
+		void PlayerCameraBack(RE::Actor* a_player);  // main thread: first person again once she is back on her feet
 		void PersonOffsets(Active& a) const;      // body/fit.cpp: a person's joint offsets and masses: the rig's, at her scale
 		NmBuild* FitCreature(Active& a, RE::Actor* a_actor) const;  // body/fit.cpp: the body rebuilt on her own bones, its offsets in a
 		void StartBurn(Active& a, const V3& a_away);  // fire: the arms beat at the flames, a stumble away
@@ -475,6 +477,9 @@ namespace delirium
 		std::atomic<RE::Actor*>              letKill_{ nullptr };  // the kill we make ourselves goes through
 		bool          aboutJoint_{ true };   // [Ragdoll] bTurnAboutJoint: a muscle turns the limb about its joint (the spin and the swing that goes with it)
 		bool          player_{ true };  // [Player] bPlayer: the player gets Delirium's reactions and ragdolls too
+		int           playerCamera_{ 1 };  // [Player] iThirdPerson: 0 never, 1 while knocked down / thrown, 2 every reaction
+		bool          playerCamForced_{ false };   // we put the camera in third person: first person again once she is up
+		bool          playerCamRestore_{ false };  // released: back to first person when she is up
 		bool          draugr_{ true }, skeletons_{ false }, falmer_{ false };  // [Creatures] bDraugr / bSkeletons / bFalmer: these creatures too (a person's bones)
 		// Skyrim's joints' own friction, by joint data (it may be shared between ragdolls): the original and how many hold it
 		std::unordered_map<RE::hkpConstraintData*, std::pair<float, int>> eased_;
